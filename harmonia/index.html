@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Harmonia — MIDI Keyboard Visualizer & Chord Analyzer</title>
+  </head>
+  <body>
+    <header id="topbar">
+      <h1>🎹 Harmonia</h1>
+      <span id="key-badge" title="Current key / mode (change in Settings)">C ionian</span>
+      <span id="midi-status">MIDI: initializing…</span>
+      <span class="spacer"></span>
+      <button id="btn-clear-history" type="button">Clear History</button>
+      <button id="btn-settings" type="button" class="primary">⚙ Settings</button>
+    </header>
+
+    <main>
+      <section id="chord-area">
+        <div id="current-panel">
+          <div class="panel-label">Current chord</div>
+          <div id="current-chord">—</div>
+          <div id="chord-alternatives"></div>
+        </div>
+        <div id="history-panel">
+          <div class="panel-label">Last 4 chords</div>
+          <div id="chord-history"></div>
+        </div>
+      </section>
+
+      <section id="keyboard"></section>
+
+      <p id="hint">
+        Play a MIDI controller (pick the input port in ⚙ Settings), click the keys, or use your
+        computer keyboard: <b>A W S E D F T G Y H U J</b> = one octave, <b>K O L P ;</b> extends it.
+      </p>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
