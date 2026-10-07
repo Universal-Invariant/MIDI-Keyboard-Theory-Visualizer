@@ -6,7 +6,7 @@
  * should still inform the chord). Also emits events so UI panels can subscribe.
  */
 
-import type { MidiNoteEvent, NoteState, GhostNote } from '../types.ts';
+import type { MidiEvent, MidiNoteEvent, NoteState, GhostNote } from '../types.ts';
 
 type Listener = (state: NoteState) => void;
 
@@ -20,6 +20,9 @@ export interface NoteBusOptions {
 export class NoteBus {
   private held = new Map<number, { velocity: number; channel: number; since: number }>();
   private released: { pitch: number; velocity: number; channel: number; releasedAt: number }[] = [];
+  /** Notes kept alive by the sustain pedal (CC64) after finger release. */
+  private sustained = new Map<number, { velocity: number; channel: number; since: number }>();
+  private pedalDown = false;
   private listeners = new Set<Listener>();
   private opts: Required<NoteBusOptions>;
   private decayTimer: ReturnType<typeof setInterval> | null = null;
@@ -49,33 +52,67 @@ export class NoteBus {
     }
   }
 
-  handleEvent(ev: MidiNoteEvent): void {
+  handleEvent(ev: MidiEvent): void {
     const now = ev.timestamp;
-    if (ev.name === 'note-on' && ev.velocity > 0) {
+    if (ev.name === 'control-change') {
+      if (ev.controller === 64) this.setSustainPedal(ev.value >= 64, now);
+      if (ev.controller === 123 || ev.controller === 120) this.allNotesOff(now); // All Notes Off / All Sound Off
+      return;
+    }
+    const noteEv: MidiNoteEvent = ev;
+    if (noteEv.name === 'note-on' && noteEv.velocity > 0) {
       this.held.set(ev.pitch, { velocity: ev.velocity, channel: ev.channel, since: now });
-      // Re-triggered note removes its ghost.
+      // Re-triggered note removes its ghost and any stale pedal hold.
       this.released = this.released.filter((r) => r.pitch !== ev.pitch);
+      this.sustained.delete(ev.pitch);
     } else {
       const h = this.held.get(ev.pitch);
       this.held.delete(ev.pitch);
       if (h) {
-        this.released.push({ pitch: ev.pitch, velocity: h.velocity, channel: h.channel, releasedAt: now });
+        if (this.pedalDown) {
+          this.sustained.set(ev.pitch, h);   // pedal keeps it "held" until release
+        } else {
+          this.released.push({ pitch: ev.pitch, velocity: h.velocity, channel: h.channel, releasedAt: now });
+        }
       }
     }
     this.emit();
   }
 
+  /** Sustain pedal (CC64) state change. On release, held-by-pedal notes become ghosts. */
+  setSustainPedal(down: boolean, now = performance.now()): void {
+    if (down === this.pedalDown) return;
+    this.pedalDown = down;
+    if (!down) {
+      for (const [pitch, h] of this.sustained) {
+        this.released.push({ pitch, velocity: h.velocity, channel: h.channel, releasedAt: now });
+      }
+      this.sustained.clear();
+      this.emit();
+    }
+  }
+
+  get sustainPedalDown(): boolean { return this.pedalDown; }
+
   /** Panic: clear everything (e.g. on port disconnect / All-Notes-Off). */
   allNotesOff(now = performance.now()): void {
     this.held.clear();
+    this.sustained.clear();
     this.released = [];
     void now;
     this.emit();
   }
 
   getState(now = performance.now()): NoteState {
-    const held = [...this.held.entries()]
-      .map(([pitch, v]) => ({ pitch, ...v }))
+    // Pedal-sustained notes count as held (slightly softer evidence than finger-held).
+    const heldEntries = [...this.held.entries(), ...[...this.sustained.entries()].map(([p, v]) => [p, { ...v, sustained: true }] as const)];
+    const seen = new Map<number, { velocity: number; channel: number; since: number }>();
+    for (const [pitch, v] of heldEntries) {
+      const prev = seen.get(pitch);
+      if (!prev || v.velocity > prev.velocity) seen.set(pitch, v);
+    }
+    const held = [...seen.entries()]
+      .map(([pitch, v]) => ({ pitch, velocity: v.velocity, channel: v.channel, since: v.since }))
       .sort((a, b) => a.pitch - b.pitch);
 
     const ghosts: GhostNote[] = [];

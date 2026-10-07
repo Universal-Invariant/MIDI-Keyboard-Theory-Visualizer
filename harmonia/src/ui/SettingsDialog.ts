@@ -5,8 +5,10 @@
  */
 
 import type { KeyboardVizMode, KeySignatureSetting } from '../core/types.ts';
+import type { ProgressionStep } from '../core/playback/sequencer.ts';
 import { NOTE_NAMES_FLAT } from '../core/theory/pitch.ts';
 import { SCALES } from '../core/theory/scales.ts';
+import { METERS } from '../core/playback/metronome.ts';
 import type { WebMidiAdapter, PortInfo } from '../midi/WebMidiAdapter.ts';
 
 export interface AppSettings {
@@ -15,6 +17,13 @@ export interface AppSettings {
   vizMode: KeyboardVizMode;
   baseOctave: number;         // for octave1 / octave2split modes
   key: KeySignatureSetting;
+  /** Playback */
+  bpm: number;
+  meterId: string;
+  loopProgression: boolean;
+  playbackOctave: number;     // voicing octave for sequencer + history replay
+  playToOutput: boolean;      // send MIDI out to hardware as well as on-screen
+  progression: ProgressionStep[];
 }
 
 const STORAGE_KEY = 'harmonia.settings.v1';
@@ -26,11 +35,18 @@ export function loadSettings(): AppSettings {
     vizMode: 'full88',
     baseOctave: 4,
     key: { tonic: 0, scale: 'ionian' },
+    bpm: 100,
+    meterId: '4/4',
+    loopProgression: true,
+    playbackOctave: 4,
+    playToOutput: true,
+    progression: [],
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaults;
-    return { ...defaults, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return { ...defaults, ...parsed, key: { ...defaults.key, ...parsed.key } };
   } catch {
     return defaults;
   }
@@ -78,6 +94,15 @@ export class SettingsDialog {
         <label>Mode / Scale
           <select id="sel-scale"></select>
         </label>
+        <h3>Playback</h3>
+        <label>Metronome Meter
+          <select id="sel-meter"></select>
+        </label>
+        <label>Default Voicing Octave
+          <select id="sel-play-oct"></select>
+        </label>
+        <label class="check"><input type="checkbox" id="chk-loop" /> Loop progression playback</label>
+        <label class="check"><input type="checkbox" id="chk-out" /> Send playback to MIDI output port</label>
         <div class="modal-actions">
           <button id="btn-refresh" type="button">Rescan Ports</button>
           <button id="btn-close" type="button" class="primary">Done</button>
@@ -92,15 +117,25 @@ export class SettingsDialog {
     const selBase = $<HTMLSelectElement>('sel-base-oct');
     const selKey = $<HTMLSelectElement>('sel-key');
     const selScale = $<HTMLSelectElement>('sel-scale');
+    const selMeter = $<HTMLSelectElement>('sel-meter');
+    const selPlayOct = $<HTMLSelectElement>('sel-play-oct');
+    const chkLoop = $<HTMLInputElement>('chk-loop');
+    const chkOut = $<HTMLInputElement>('chk-out');
 
     for (let o = 0; o <= 8; o++) addOption(selBase, String(o), `C${o}`);
+    for (let o = 1; o <= 7; o++) addOption(selPlayOct, String(o), `C${o}`);
     NOTE_NAMES_FLAT.forEach((n, pc) => addOption(selKey, String(pc), n));
     SCALES.forEach((s) => addOption(selScale, s.id, s.name));
+    METERS.forEach((m) => addOption(selMeter, m.id, m.name));
 
     selViz.value = this.settings.vizMode;
     selBase.value = String(this.settings.baseOctave);
     selKey.value = String(this.settings.key.tonic);
     selScale.value = this.settings.key.scale;
+    selMeter.value = this.settings.meterId;
+    selPlayOct.value = String(this.settings.playbackOctave);
+    chkLoop.checked = this.settings.loopProgression;
+    chkOut.checked = this.settings.playToOutput;
 
     const commit = () => {
       this.settings.inputPortId = selInput.value || null;
@@ -108,10 +143,15 @@ export class SettingsDialog {
       this.settings.vizMode = selViz.value as KeyboardVizMode;
       this.settings.baseOctave = Number(selBase.value);
       this.settings.key = { tonic: Number(selKey.value), scale: selScale.value };
+      this.settings.meterId = selMeter.value;
+      this.settings.playbackOctave = Number(selPlayOct.value);
+      this.settings.loopProgression = chkLoop.checked;
+      this.settings.playToOutput = chkOut.checked;
       saveSettings(this.settings);
       this.onChange(this.settings);
     };
-    [selInput, selOutput, selViz, selBase, selKey, selScale].forEach((el) => el.addEventListener('change', commit));
+    [selInput, selOutput, selViz, selBase, selKey, selScale, selMeter, selPlayOct, chkLoop, chkOut]
+      .forEach((el) => el.addEventListener('change', commit));
 
     $<HTMLButtonElement>('btn-refresh').addEventListener('click', () => this.refreshPorts());
     $<HTMLButtonElement>('btn-close').addEventListener('click', () => this.hide());

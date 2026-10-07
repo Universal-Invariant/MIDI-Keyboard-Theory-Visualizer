@@ -6,7 +6,7 @@
  * need the midi-plugin-for-webkit shim or the native fallback bridge (README §5).
  */
 
-import type { MidiNoteEvent } from '../core/types.ts';
+import type { MidiNoteEvent, MidiCCEvent, MidiEvent } from '../core/types.ts';
 
 export interface PortInfo {
   id: string;
@@ -16,10 +16,12 @@ export interface PortInfo {
 }
 
 export type NoteEventListener = (ev: MidiNoteEvent) => void;
+export type CCListener = (ev: MidiCCEvent) => void;
 
 export class WebMidiAdapter {
   private access: MIDIAccess | null = null;
   private inputListeners = new Set<NoteEventListener>();
+  private ccListeners = new Set<CCListener>();
   private activeInputId: string | null = null;
   private activeOutputId: string | null = null;
   private onPortsChanged: (() => void) | null = null;
@@ -55,8 +57,10 @@ export class WebMidiAdapter {
     if (!input) return;
     input.onmidimessage = (msg: MIDIMessageEvent) => {
       if (!(msg.data instanceof Uint8Array)) return;
-      const ev = parseNoteMessage(msg.data, msg.timeStamp);
-      if (ev) for (const fn of this.inputListeners) fn(ev);
+      const ev = parseMidiMessage(msg.data, msg.timeStamp);
+      if (!ev) return;
+      if (ev.name === 'control-change') for (const fn of this.ccListeners) fn(ev);
+      else for (const fn of this.inputListeners) fn(ev);
     };
   }
 
@@ -72,6 +76,11 @@ export class WebMidiAdapter {
     return () => this.inputListeners.delete(fn);
   }
 
+  onCC(fn: CCListener): () => void {
+    this.ccListeners.add(fn);
+    return () => this.ccListeners.delete(fn);
+  }
+
   /** Send a note on/off to the selected output (used by playback later). */
   sendNote(name: 'note-on' | 'note-off', pitch: number, velocity: number, channel = 0): void {
     if (!this.access || !this.activeOutputId) return;
@@ -81,9 +90,17 @@ export class WebMidiAdapter {
     out.send([status, pitch & 0x7f, velocity & 0x7f]);
   }
 
+  /** Send an arbitrary raw message to the selected output. */
+  send(data: number[]): void {
+    if (!this.access || !this.activeOutputId) return;
+    const out = this.access.outputs.get(this.activeOutputId);
+    if (out) out.send(data);
+  }
+
   /** Simulate notes as if they came from hardware (computer-keyboard input). */
-  injectNote(ev: MidiNoteEvent): void {
-    for (const fn of this.inputListeners) fn(ev);
+  injectNote(ev: MidiEvent): void {
+    if (ev.name === 'control-change') for (const fn of this.ccListeners) fn(ev);
+    else for (const fn of this.inputListeners) fn(ev);
   }
 }
 
@@ -91,17 +108,21 @@ function toPortInfo(p: MIDIInput | MIDIOutput): PortInfo {
   return { id: p.id, name: p.name, manufacturer: p.manufacturer, state: p.state };
 }
 
-/** Parse Channel Voice messages for note on/off; ignore everything else for now. */
-export function parseNoteMessage(data: Uint8Array, timeStamp: number): MidiNoteEvent | null {
+/** Parse Channel Voice messages for note on/off and control change; ignore the rest. */
+export function parseMidiMessage(data: Uint8Array, timeStamp: number): MidiEvent | null {
   if (data.length < 3) return null;
   const status = data[0];
   const kind = status & 0xf0;
   const channel = status & 0x0f;
-  const pitch = data[1] & 0x7f;
-  const velocity = data[2] & 0x7f;
-  if (kind === 0x90 && velocity > 0) return { name: 'note-on', pitch, velocity, channel, timestamp: timeStamp };
-  if (kind === 0x80 || (kind === 0x90 && velocity === 0)) {
-    return { name: 'note-off', pitch, velocity, channel, timestamp: timeStamp };
+  const d1 = data[1] & 0x7f;
+  const d2 = data[2] & 0x7f;
+  if (kind === 0x90 && d2 > 0) return { name: 'note-on', pitch: d1, velocity: d2, channel, timestamp: timeStamp };
+  if (kind === 0x80 || (kind === 0x90 && d2 === 0)) {
+    return { name: 'note-off', pitch: d1, velocity: d2, channel, timestamp: timeStamp };
   }
-  return null; // CC, program change, pitch bend etc. — TODO(v0.2+): sustain pedal CC64.
+  if (kind === 0xb0) return { name: 'control-change', controller: d1, value: d2, channel, timestamp: timeStamp };
+  return null; // program change, pitch bend etc. — future work.
 }
+
+/** Back-compat alias used in earlier tests. */
+export const parseNoteMessage = parseMidiMessage;

@@ -1,14 +1,24 @@
 /** Shared domain types for Harmonia. */
 
-export type NoteEventName = 'note-on' | 'note-off';
+export type NoteEventName = 'note-on' | 'note-off' | 'control-change';
 
 export interface MidiNoteEvent {
-  name: NoteEventName;
+  name: 'note-on' | 'note-off';
   pitch: number;        // MIDI note number 0..127
   velocity: number;     // 0..127 (for note-off, the release velocity)
   channel: number;      // 0..15
   timestamp: number;    // performance.now() at reception
 }
+
+export interface MidiCCEvent {
+  name: 'control-change';
+  controller: number;   // CC number (64 = sustain/damper pedal)
+  value: number;        // 0..127
+  channel: number;
+  timestamp: number;
+}
+
+export type MidiEvent = MidiNoteEvent | MidiCCEvent;
 
 export interface HeldNote {
   pitch: number;
