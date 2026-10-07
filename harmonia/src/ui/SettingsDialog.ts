@@ -5,6 +5,8 @@
  */
 
 import type { KeyboardVizMode, KeySignatureSetting } from '../core/types.ts';
+import type { PaletteMode } from '../core/palette.ts';
+import { PALETTE_MODES, PC_COLORS, FUNCTION_COLORS } from '../core/palette.ts';
 import type { ProgressionStep } from '../core/playback/sequencer.ts';
 import { NOTE_NAMES_FLAT } from '../core/theory/pitch.ts';
 import { SCALES } from '../core/theory/scales.ts';
@@ -17,6 +19,15 @@ export interface AppSettings {
   vizMode: KeyboardVizMode;
   baseOctave: number;         // for octave1 / octave2split modes
   key: KeySignatureSetting;
+  /** Ghost-note memory: how long released notes keep informing the analysis. */
+  ghostMemoryMs: number;      // drop ghosts entirely after this age
+  ghostHalfLifeMs: number;    // evidence half-life (derived from ghostMemoryMs)
+  /** Chord palette (keyboard highlight colors). */
+  paletteMode: PaletteMode;
+  /** Custom per-pitch-class colors (index 0..11; null = scheme default). */
+  pcColors: (string | null)[];
+  /** Custom colors keyed by function label (I..VII, NONDIATONIC). */
+  functionColors: Record<string, string>;
   /** Playback */
   bpm: number;
   meterId: string;
@@ -35,6 +46,11 @@ export function loadSettings(): AppSettings {
     vizMode: 'full88',
     baseOctave: 4,
     key: { tonic: 0, scale: 'ionian' },
+    ghostMemoryMs: 1200,
+    ghostHalfLifeMs: 600,
+    paletteMode: 'mono',
+    pcColors: PC_COLORS.map(() => null),
+    functionColors: { ...FUNCTION_COLORS },
     bpm: 100,
     meterId: '4/4',
     loopProgression: true,
@@ -46,7 +62,16 @@ export function loadSettings(): AppSettings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaults;
     const parsed = JSON.parse(raw);
-    return { ...defaults, ...parsed, key: { ...defaults.key, ...parsed.key } };
+    const s: AppSettings = {
+      ...defaults, ...parsed,
+      key: { ...defaults.key, ...parsed.key },
+      pcColors: Array.isArray(parsed.pcColors) && parsed.pcColors.length === 12
+        ? parsed.pcColors : defaults.pcColors,
+      functionColors: { ...defaults.functionColors, ...(parsed.functionColors ?? {}) },
+    };
+    // Re-derive half-life from the configured memory window (≈2 half-lives to fade).
+    if (parsed.ghostMemoryMs && !parsed.ghostHalfLifeMs) s.ghostHalfLifeMs = Math.max(100, s.ghostMemoryMs / 2);
+    return s;
   } catch {
     return defaults;
   }
@@ -94,6 +119,21 @@ export class SettingsDialog {
         <label>Mode / Scale
           <select id="sel-scale"></select>
         </label>
+        <label>Released-note memory (ghost notes)
+          <select id="sel-ghost">
+            <option value="0">Off — only currently held notes</option>
+            <option value="400">Very short · 0.4 s</option>
+            <option value="800">Short · 0.8 s</option>
+            <option value="1200">Medium · 1.2 s</option>
+            <option value="2000">Long · 2 s</option>
+            <option value="4000">Very long · 4 s</option>
+          </select>
+        </label>
+        <h3>Chord Palette (keyboard colors)</h3>
+        <label>Color scheme
+          <select id="sel-palette"></select>
+        </label>
+        <div id="palette-editor" class="palette-editor"></div>
         <h3>Playback</h3>
         <label>Metronome Meter
           <select id="sel-meter"></select>
@@ -119,6 +159,9 @@ export class SettingsDialog {
     const selScale = $<HTMLSelectElement>('sel-scale');
     const selMeter = $<HTMLSelectElement>('sel-meter');
     const selPlayOct = $<HTMLSelectElement>('sel-play-oct');
+    const selGhost = $<HTMLSelectElement>('sel-ghost');
+    const selPalette = $<HTMLSelectElement>('sel-palette');
+    const paletteEditor = $<HTMLElement>('palette-editor');
     const chkLoop = $<HTMLInputElement>('chk-loop');
     const chkOut = $<HTMLInputElement>('chk-out');
 
@@ -127,6 +170,7 @@ export class SettingsDialog {
     NOTE_NAMES_FLAT.forEach((n, pc) => addOption(selKey, String(pc), n));
     SCALES.forEach((s) => addOption(selScale, s.id, s.name));
     METERS.forEach((m) => addOption(selMeter, m.id, m.name));
+    PALETTE_MODES.forEach((p) => addOption(selPalette, p.id, p.name));
 
     selViz.value = this.settings.vizMode;
     selBase.value = String(this.settings.baseOctave);
@@ -134,8 +178,52 @@ export class SettingsDialog {
     selScale.value = this.settings.key.scale;
     selMeter.value = this.settings.meterId;
     selPlayOct.value = String(this.settings.playbackOctave);
+    selPalette.value = this.settings.paletteMode;
+    // Snap stored value to the nearest available option.
+    selGhost.value = ghostOptionFor(this.settings.ghostMemoryMs);
     chkLoop.checked = this.settings.loopProgression;
     chkOut.checked = this.settings.playToOutput;
+
+    /** Rebuild the color swatch grid for the selected palette mode. */
+    const renderPaletteEditor = () => {
+      paletteEditor.innerHTML = '';
+      const mode = selPalette.value as PaletteMode;
+      if (mode === 'mono' || mode === 'chord') {
+        const hint = document.createElement('div');
+        hint.className = 'palette-hint';
+        hint.textContent = mode === 'mono'
+          ? 'All active keys share one highlight color.'
+          : 'Keys take the color of the chord being played — major chords use the root\'s hue, minor/dim/aug are shaded variants. Change the Key above to recolor by diatonic function.';
+        paletteEditor.appendChild(hint);
+        return;
+      }
+      const grid = document.createElement('div');
+      grid.className = 'swatch-grid';
+      if (mode === 'pc') {
+        NOTE_NAMES_FLAT.forEach((name, pc) => {
+          grid.appendChild(swatch(name, this.settings.pcColors[pc] ?? PC_COLORS[pc], (c) => {
+            this.settings.pcColors[pc] = c;
+          }));
+        });
+      } else {
+        for (const [label, def] of Object.entries(FUNCTION_COLORS)) {
+          grid.appendChild(swatch(label === 'NONDIATONIC' ? 'χ out-of-key' : label, this.settings.functionColors[label] ?? def, (c) => {
+            this.settings.functionColors[label] = c;
+          }));
+        }
+      }
+      paletteEditor.appendChild(grid);
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.textContent = 'Reset colors';
+      reset.addEventListener('click', () => {
+        if (mode === 'pc') this.settings.pcColors = PC_COLORS.map(() => null);
+        else this.settings.functionColors = { ...FUNCTION_COLORS };
+        renderPaletteEditor();
+        commit();
+      });
+      paletteEditor.appendChild(reset);
+    };
 
     const commit = () => {
       this.settings.inputPortId = selInput.value || null;
@@ -145,13 +233,20 @@ export class SettingsDialog {
       this.settings.key = { tonic: Number(selKey.value), scale: selScale.value };
       this.settings.meterId = selMeter.value;
       this.settings.playbackOctave = Number(selPlayOct.value);
+      this.settings.ghostMemoryMs = Number(selGhost.value);
+      this.settings.paletteMode = selPalette.value as PaletteMode;
+      // ~2 half-lives until a ghost fades below visible/usable evidence.
+      this.settings.ghostHalfLifeMs = Math.max(100, this.settings.ghostMemoryMs / 2);
       this.settings.loopProgression = chkLoop.checked;
       this.settings.playToOutput = chkOut.checked;
       saveSettings(this.settings);
       this.onChange(this.settings);
     };
-    [selInput, selOutput, selViz, selBase, selKey, selScale, selMeter, selPlayOct, chkLoop, chkOut]
+    [selInput, selOutput, selViz, selBase, selKey, selScale, selMeter, selPlayOct, selGhost, selPalette, chkLoop, chkOut]
       .forEach((el) => el.addEventListener('change', commit));
+    selPalette.addEventListener('change', renderPaletteEditor);
+
+    renderPaletteEditor();
 
     $<HTMLButtonElement>('btn-refresh').addEventListener('click', () => this.refreshPorts());
     $<HTMLButtonElement>('btn-close').addEventListener('click', () => this.hide());
@@ -191,4 +286,27 @@ function addOption(sel: HTMLSelectElement, value: string, label: string): void {
   o.value = value;
   o.textContent = label;
   sel.appendChild(o);
+}
+
+const GHOST_OPTIONS = [0, 400, 800, 1200, 2000, 4000];
+
+/** Nearest ghost-memory option to a stored value (handles legacy defaults). */
+function ghostOptionFor(ms: number): string {
+  let best = GHOST_OPTIONS[0];
+  for (const o of GHOST_OPTIONS) if (Math.abs(o - ms) < Math.abs(best - ms)) best = o;
+  return String(best);
+}
+
+/** One editable color swatch with label; onPick receives the new css color. */
+function swatch(label: string, color: string, onPick: (c: string) => void): HTMLElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'swatch';
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = color;
+  input.addEventListener('input', () => onPick(input.value));
+  const text = document.createElement('span');
+  text.textContent = label;
+  wrap.append(input, text);
+  return wrap;
 }

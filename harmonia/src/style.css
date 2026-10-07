@@ -83,3 +83,33 @@ main { padding: 18px; max-width: 1200px; margin: 0 auto; }
 .modal select { background: var(--panel2); color: var(--text); border: 1px solid #343a4e;
   border-radius: 8px; padding: 7px 9px; font-size: 14px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
+/* ---- palette-aware key colors ------------------------------------------------ */
+.key.white.active { background: linear-gradient(var(--white-key), var(--hlcolor, var(--white-key-active)) calc(100% * var(--vel, 1))); }
+.key.black.active { background: linear-gradient(#3a3f52, var(--hlcolor, var(--black-key-active)) calc(100% * var(--vel, 1))); }
+.key.ghost { opacity: calc(0.18 + 0.42 * var(--gw, 1)); filter: saturate(0.4) brightness(0.9); transition: opacity 160ms linear; }
+.palette-editor { display: flex; flex-direction: column; gap: 8px; }
+.palette-hint { font-size: 12px; color: var(--muted); }
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
+.swatch { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
+.swatch input[type="color"] { width: 26px; height: 22px; padding: 0; border: 1px solid #343a4e; border-radius: 5px; background: none; cursor: pointer; }
+
+/* ---- practice panel ------------------------------------------------------------ */
+.practice-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; margin-top: 18px; }
+.practice .card, .transport.card { background: var(--panel); border-radius: 14px; padding: 14px 16px; }
+.practice .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.bpm { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.bpm input { width: 64px; background: var(--panel2); color: var(--text); border: 1px solid #343a4e; border-radius: 8px; padding: 6px 8px; font-size: 14px; }
+.beat-dots { display: flex; gap: 8px; margin-top: 10px; }
+.beat-dots span { width: 14px; height: 14px; border-radius: 50%; background: #333a52; transition: background 90ms, transform 90ms; }
+.beat-dots span.on { background: var(--accent2); transform: scale(1.25); }
+.beat-dots span.strong { background: var(--accent); }
+button.active-toggle { border-color: var(--accent2); color: var(--accent2); }
+button.playing { background: var(--accent2); color: #06101f; border-color: var(--accent2); font-weight: 600; }
+.prog-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sym-input { flex: 1; background: var(--panel2); color: var(--text); border: 1px solid #343a4e; border-radius: 8px; padding: 6px 9px; font-size: 14px; }
+.beats-input { width: 70px; background: var(--panel2); color: var(--text); border: 1px solid #343a4e; border-radius: 8px; padding: 6px 8px; font-size: 14px; }
+.hint-small { font-size: 11px; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.practice-status { font-size: 12px; color: var(--muted); margin-top: 6px; }
+#current-staff svg { display: block; margin-top: 4px; }
+.hist-staff { width: 110px; }

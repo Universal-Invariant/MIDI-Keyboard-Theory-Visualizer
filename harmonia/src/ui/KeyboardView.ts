@@ -12,9 +12,15 @@
 
 import type { KeyboardVizMode, NoteState } from '../core/types.ts';
 import { pitchClass, octaveNumber, isBlackKey, pcName } from '../core/theory/pitch.ts';
+import { paletteColorFor, type PaletteContext } from '../core/palette.ts';
 
 const WHITE_PATTERN = [0, 2, 4, 5, 7, 9, 11]; // C D E F G A B
 const BLACK_AFTER_WHITE: Record<number, number | null> = { 0: 1, 2: 3, 4: null, 5: 6, 7: 8, 9: 10, 11: null };
+
+/** True when `p` is a white key (isBlackKey returns false for non-MIDI pcs too). */
+function isWhitePitch(p: number): boolean {
+  return WHITE_PATTERN.includes(pitchClass(p));
+}
 
 export interface KeyGeom {
   /** Absolute MIDI pitch (full88) or representative pitch in base octave (octave modes). */
@@ -42,16 +48,30 @@ export function octaveGeometry(): KeyGeom[] {
   return keys;
 }
 
+/** Number of white keys in the inclusive MIDI pitch range [lo, hi]. */
+function countWhitesInRange(lo: number, hi: number): number {
+  if (hi < lo) return 0;
+  let n = 0;
+  for (let p = lo; p <= hi; p++) if (isWhitePitch(p)) n++;
+  return n;
+}
+
 interface HeldInfo { note: { pitch: number; velocity: number }; octaves: Set<number>; ghostWeight: number }
 
-/** Aggregate currently-sounding state per pitch class (for wrapped modes) or per pitch (full88). */
-function activeMap(state: NoteState, byPitchClass: boolean): Map<number, HeldInfo> {
-  const m = new Map<number, HeldInfo>();
+/**
+ * Weight of the strongest *held* source on a key (0 when only ghosts remain).
+ * `ghostWeight` in HeldInfo is the max ghost weight, but held notes set it to 0
+ * while also being present — so derive "held" from the octaves/velocity record:
+ * we track it explicitly instead via a parallel map built in activeMap.
+ */
+function activeMap(state: NoteState, byPitchClass: boolean): Map<number, HeldInfo & { held: boolean }> {
+  const m = new Map<number, HeldInfo & { held: boolean }>();
   const add = (pitch: number, vel: number, ghost: number) => {
     const key = byPitchClass ? pitchClass(pitch) : pitch;
-    const e = m.get(key) ?? { note: { pitch, velocity: vel }, octaves: new Set(), ghostWeight: 0 };
+    const e = m.get(key) ?? { note: { pitch, velocity: vel }, octaves: new Set(), ghostWeight: 0, held: false };
     e.octaves.add(octaveNumber(pitch));
-    if (ghost > e.ghostWeight && !(byPitchClass ? false : true)) e.note = { pitch, velocity: vel };
+    if (ghost === 0) { e.held = true; e.note = { pitch, velocity: vel }; }
+    else if (!e.held && ghost >= e.ghostWeight) e.note = { pitch, velocity: vel };
     e.ghostWeight = Math.max(e.ghostWeight, ghost);
     m.set(key, e);
   };
@@ -74,9 +94,20 @@ export class KeyboardView {
   private root: HTMLElement;
   private mode: KeyboardVizMode = 'full88';
   private baseOctave = 4; // reference octave for wrapped/split modes (C `baseOctave`)
+  private palette: PaletteContext | null = null;
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, mode: KeyboardVizMode = 'full88', baseOctave = 4) {
     this.root = root;
+    this.mode = mode;
+    this.baseOctave = baseOctave;
+    // Build immediately so the keyboard is visible at startup even before any
+    // settings are applied (previously it only appeared after a mode change).
+    this.build();
+  }
+
+  /** Set/replace the color palette context (null restores default accents). */
+  setPalette(p: PaletteContext | null): void {
+    this.palette = p;
   }
 
   setMode(mode: KeyboardVizMode, baseOctave?: number): void {
@@ -87,8 +118,12 @@ export class KeyboardView {
 
   get currentMode(): KeyboardVizMode { return this.mode; }
 
-  /** Change reference octave without rebuilding the DOM. */
-  setBaseOctave(oct: number): void { this.baseOctave = oct; }
+  /** Change reference octave; rebuilds wrapped/split views since band labels change. */
+  setBaseOctave(oct: number): void {
+    if (oct === this.baseOctave) return;
+    this.baseOctave = oct;
+    if (this.mode !== 'full88') this.build();
+  }
 
   /** Rebuild DOM skeleton when mode changes. */
   build(): void {
@@ -110,47 +145,34 @@ export class KeyboardView {
     const wrap = el('div', 'kb kb-88');
     const whites = el('div', 'kb-whites');
     const blacks = el('div', 'kb-blacks');
-    const geo = octaveGeometry();
-    const whitePcs = WHITE_PATTERN;
-    const numWhites = whitePcs.filter((pc) => pc + 12 * 0 >= 0).length; // 7 per octave
-    void numWhites;
-    const whiteCount = [...Array(HIGH - LOW + 1).keys()].map((i) => LOW + i).filter((p) => !isBlackKey(p)).length;
+    const whiteCount = countWhitesInRange(LOW, HIGH);
     const w = 100 / whiteCount;
     let wi = 0;
     for (let p = LOW; p <= HIGH; p++) {
-      if (!isBlackKey(p)) {
-        const k = el('div', 'key white');
-        k.dataset.pitch = String(p);
-        k.style.left = `${wi * w}%`;
-        k.style.width = `${w}%`;
-        if (pitchClass(p) === 0) {
-          const label = document.createElement('span');
-          label.className = 'key-label';
-          label.textContent = `C${octaveNumber(p)}`;
-          k.appendChild(label);
-        }
-        whites.appendChild(k);
-        wi++;
+      if (!isWhitePitch(p)) continue;
+      const k = el('div', 'key white');
+      k.dataset.pitch = String(p);
+      k.style.left = `${wi * w}%`;
+      k.style.width = `${w}%`;
+      if (pitchClass(p) === 0) {
+        const label = document.createElement('span');
+        label.className = 'key-label';
+        label.textContent = `C${octaveNumber(p)}`;
+        k.appendChild(label);
       }
+      whites.appendChild(k);
+      wi++;
     }
-    // Black keys positioned relative to total width using same scale.
-    let prevWhiteIdx = -1;
+    // Black keys sit straddling the boundary after their preceding white key.
     for (let p = LOW; p <= HIGH; p++) {
-      if (isBlackKey(p)) {
-        // find index of preceding white key
-        const before = p - 1;
-        const whiteIdxBefore = [...Array(before - LOW + 1).keys()].map((i) => LOW + i).filter((x) => !isBlackKey(x)).length - 1;
-        if (whiteIdxBefore !== prevWhiteIdx) {
-          prevWhiteIdx = whiteIdxBefore;
-          const k = el('div', 'key black');
-          k.dataset.pitch = String(p);
-          k.style.left = `${(whiteIdxBefore + 1) * w - w * 0.3}%`;
-          k.style.width = `${w * 0.6}%`;
-          blacks.appendChild(k);
-        }
-      }
+      if (!isBlackKey(p)) continue;
+      const whiteIdxBefore = countWhitesInRange(LOW, p - 1) - 1;
+      const k = el('div', 'key black');
+      k.dataset.pitch = String(p);
+      k.style.left = `${(whiteIdxBefore + 1) * w - w * 0.3}%`;
+      k.style.width = `${w * 0.6}%`;
+      blacks.appendChild(k);
     }
-    void geo;
     wrap.append(whites, blacks);
     this.root.appendChild(wrap);
   }
@@ -160,8 +182,9 @@ export class KeyboardView {
     this.root.querySelectorAll<HTMLElement>('.kb-88 .key').forEach((k) => {
       const pitch = Number(k.dataset.pitch);
       const info = active.get(pitch);
-      applyKeyStyle(k, info);
-      setBadge(k, info ? String(octaveNumber(pitch)) : '');
+      applyKeyStyle(k, info, this.palette ? pitch : null, this.palette);
+      // No octave badges on the full keyboard — every key is already unique.
+      setBadge(k, '');
     });
   }
 
@@ -172,6 +195,10 @@ export class KeyboardView {
     for (let band = 0; band < numOctaves; band++) {
       const strip = el('div', 'kb kb-octave');
       strip.dataset.band = String(band);
+      // Label each band with the octave it represents so the split is readable.
+      const bandLabel = el('div', 'band-label');
+      bandLabel.textContent = `C${this.baseOctave + band}${numOctaves > 1 ? (band === 0 ? ' · lower' : ' · upper') : ''}`;
+      strip.appendChild(bandLabel);
       const whites = el('div', 'kb-whites');
       const blacks = el('div', 'kb-blacks');
       for (const g of geo.filter((k) => !k.black)) {
@@ -232,19 +259,40 @@ export class KeyboardView {
       strip.querySelectorAll<HTMLElement>('.key').forEach((k) => {
         const pc = Number(k.dataset.pc);
         const info = m.get(pc);
-        applyKeyStyle(k, info);
+        applyKeyStyle(k, info, this.palette ? pc : null, this.palette);
         setBadge(k, info ? [...info.octaves].sort((a, b) => a - b).join('·') : '');
       });
     });
   }
 }
 
-function applyKeyStyle(k: HTMLElement, info: HeldInfo | undefined): void {
-  k.classList.toggle('active', !!info && info.ghostWeight === 0);
-  k.classList.toggle('ghost', !!info && info.ghostWeight > 0);
-  if (info) {
-    const v = Math.max(info.note.velocity / 127, 0.15);
-    k.style.setProperty('--vel', v.toFixed(2));
+/**
+ * Apply held/ghost styling to one key element. Ghost keys fade proportionally to
+ * the note's decay weight (`--gw`), so shorter configured ghost delays visibly
+ * fade faster; CSS transitions smooth between the bus's decay ticks.
+ * When `paletteCtx` is provided, active keys get a palette color via --hlcolor.
+ */
+function applyKeyStyle(
+  k: HTMLElement,
+  info: (HeldInfo & { held?: boolean }) | undefined,
+  palettePitch: number | null,
+  paletteCtx: PaletteContext | null,
+): void {
+  const isGhost = !!info && info.held === false;
+  k.classList.toggle('active', !!info && !isGhost);
+  k.classList.toggle('ghost', isGhost);
+  if (!info) { k.style.removeProperty('--hlcolor'); return; }
+  const v = Math.max(info.note.velocity / 127, 0.15);
+  k.style.setProperty('--vel', v.toFixed(2));
+  // Weight of remaining evidence: full while held, decaying for ghosts.
+  const gw = isGhost ? Math.min(1, info.ghostWeight) : 1;
+  k.style.setProperty('--gw', gw.toFixed(3));
+  if (paletteCtx && palettePitch !== null) {
+    const color = paletteColorFor(palettePitch, paletteCtx);
+    if (color) k.style.setProperty('--hlcolor', color);
+    else k.style.removeProperty('--hlcolor');
+  } else {
+    k.style.removeProperty('--hlcolor');
   }
 }
 

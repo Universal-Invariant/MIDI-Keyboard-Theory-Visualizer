@@ -29,9 +29,15 @@ export class NoteBus {
 
   constructor(opts: NoteBusOptions = {}) {
     this.opts = {
-      ghostHalfLifeMs: opts.ghostHalfLifeMs ?? 1500,
-      ghostMaxAgeMs: opts.ghostMaxAgeMs ?? 4000,
+      ghostHalfLifeMs: opts.ghostHalfLifeMs ?? 750,
+      ghostMaxAgeMs: opts.ghostMaxAgeMs ?? 1500,
     };
+  }
+
+  /** Reconfigure ghost memory at runtime (Settings dialog). */
+  setGhostMemory(halfLifeMs: number, maxAgeMs: number): void {
+    this.opts.ghostHalfLifeMs = Math.max(1, halfLifeMs);
+    this.opts.ghostMaxAgeMs = Math.max(this.opts.ghostHalfLifeMs, maxAgeMs);
   }
 
   subscribe(fn: Listener): () => void {
@@ -116,11 +122,13 @@ export class NoteBus {
       .sort((a, b) => a.pitch - b.pitch);
 
     const ghosts: GhostNote[] = [];
-    for (const r of this.released) {
-      const age = now - r.releasedAt;
-      if (age > this.opts.ghostMaxAgeMs) continue;
-      const weight = Math.pow(0.5, age / this.opts.ghostHalfLifeMs);
-      ghosts.push({ pitch: r.pitch, velocity: r.velocity, channel: r.channel, since: r.releasedAt, releasedAt: r.releasedAt, weight });
+    if (this.opts.ghostMaxAgeMs > 0) {
+      for (const r of this.released) {
+        const age = now - r.releasedAt;
+        if (age > this.opts.ghostMaxAgeMs) continue;
+        const weight = Math.pow(0.5, age / this.opts.ghostHalfLifeMs);
+        ghosts.push({ pitch: r.pitch, velocity: r.velocity, channel: r.channel, since: r.releasedAt, releasedAt: r.releasedAt, weight });
+      }
     }
 
     return { held, ghosts, timestamp: now };

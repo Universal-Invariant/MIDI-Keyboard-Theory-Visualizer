@@ -8,11 +8,13 @@ import './style.css';
  */
 
 import type { MidiNoteEvent, NoteState } from './core/types.ts';
+import type { PaletteContext } from './core/palette.ts';
 import { NoteBus } from './core/notes/NoteBus.ts';
 import { analyzeChords } from './core/chords/analyzer.ts';
 import { WebMidiAdapter } from './midi/WebMidiAdapter.ts';
 import { KeyboardView } from './ui/KeyboardView.ts';
 import { ChordPanel } from './ui/ChordPanel.ts';
+import { PracticePanel } from './ui/PracticePanel.ts';
 import { SettingsDialog, loadSettings, saveSettings } from './ui/SettingsDialog.ts';
 import type { AppSettings } from './ui/SettingsDialog.ts';
 
@@ -21,35 +23,55 @@ const keyboardRoot = document.getElementById('keyboard')!;
 const currentEl = document.getElementById('current-chord')!;
 const altsEl = document.getElementById('chord-alternatives')!;
 const historyEl = document.getElementById('chord-history')!;
+const currentStaffEl = document.getElementById('current-staff')!;
+const practiceRoot = document.getElementById('practice');
 const midiStatusEl = document.getElementById('midi-status')!;
 const keyBadgeEl = document.getElementById('key-badge')!;
 
 // ---- Core state -------------------------------------------------------------
 const settings: AppSettings = loadSettings();
-const bus = new NoteBus();
+const bus = new NoteBus({ ghostHalfLifeMs: settings.ghostHalfLifeMs, ghostMaxAgeMs: settings.ghostMemoryMs });
 const adapter = new WebMidiAdapter();
-const keyboard = new KeyboardView(keyboardRoot);
+const keyboard = new KeyboardView(keyboardRoot, settings.vizMode, settings.baseOctave);
 const chordPanel = new ChordPanel(currentEl, altsEl, historyEl);
+chordPanel.attachLiveStaff(currentStaffEl);
 
 let lastCandidates = analyzeEmpty();
 function analyzeEmpty() { return [] as ReturnType<typeof analyzeChords>; }
 
+// ---- Palette context ----------------------------------------------------------
+function paletteCtx(): PaletteContext {
+  const best = lastCandidates[0] ?? null;
+  return {
+    mode: settings.paletteMode,
+    key: settings.key,
+    currentSymbol: best?.symbol ?? null,
+    currentChordPcs: best?.pcs ?? [],
+    pcColors: settings.pcColors,
+    functionColors: settings.functionColors,
+  };
+}
+
 // ---- Analysis + render loop ---------------------------------------------------
-let pendingCommit: { candidates: ReturnType<typeof analyzeChords>; pcs: number[] } | null = null;
+let pendingCommit: { candidates: ReturnType<typeof analyzeChords>; pcs: number[]; pitches: number[] } | null = null;
 
 function onNoteState(state: NoteState): void {
-  keyboard.update(state);
   const candidates = analyzeChords(state, { key: settings.key, topN: 4 });
   lastCandidates = candidates;
+  keyboard.setPalette(paletteCtx());
+  keyboard.update(state);
+  // Live notation shows what is actually sounding (held + still-relevant ghosts).
+  chordPanel.setLivePitches(state.held.map((n) => n.pitch), state.ghosts.filter((g) => g.weight > 0.25).map((g) => g.pitch));
   chordPanel.update(candidates);
 
   // History commit: when notes are released but ghosts still carry the chord,
   // remember the best interpretation of the group that just ended.
   if (state.held.length === 0 && state.ghosts.length > 0 && candidates.length > 0) {
-    const pcs = [...new Set(state.ghosts.map((g) => g.pitch % 12))].sort((a, b) => a - b);
-    pendingCommit = { candidates, pcs };
+    const pitches = [...new Set(state.ghosts.map((g) => g.pitch))].sort((a, b) => a - b);
+    const pcs = [...new Set(pitches.map((p) => p % 12))].sort((a, b) => a - b);
+    pendingCommit = { candidates, pcs, pitches };
   } else if (state.held.length === 0 && state.ghosts.length === 0 && pendingCommit) {
-    chordPanel.commitHistory(pendingCommit.candidates, pendingCommit.pcs, state.timestamp);
+    chordPanel.commitHistory(pendingCommit.candidates, pendingCommit.pcs, state.timestamp, pendingCommit.pitches);
     pendingCommit = null;
   }
 }
@@ -61,9 +83,11 @@ bus.startDecayLoop(200);
 function applySettings(s: AppSettings): void {
   adapter.setInputPort(s.inputPortId);
   adapter.setOutputPort(s.outputPortId);
+  bus.setGhostMemory(s.ghostHalfLifeMs, s.ghostMemoryMs);
   if (keyboard.currentMode !== s.vizMode) keyboard.setMode(s.vizMode, s.baseOctave);
   else keyboard.setBaseOctave(s.baseOctave);
   keyBadgeEl.textContent = `${['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'][s.key.tonic]} ${s.key.scale}`;
+  practice?.applySettings();
   updateMidiStatus();
 }
 
@@ -89,10 +113,26 @@ async function initMidi(): Promise<void> {
   applySettings(settings);
 }
 
+// ---- Practice panel (metronome + progression editor + playback) ---------------
+let practice: PracticePanel | null = null;
+
+function initPractice(): void {
+  if (!practiceRoot) return;
+  practice = new PracticePanel(practiceRoot, {
+    settings,
+    adapter,
+    inject: (ev) => bus.handleEvent(ev),
+    getHistorySymbols: () => chordPanel.getHistory().map((h) => h.symbol),
+  });
+  // Clicking a history card replays that voicing through the same pipeline.
+  chordPanel.onReplay = (pitches) => practice?.replayPitches(pitches);
+}
+
 const dialog = new SettingsDialog(document.body, adapter, settings, (s) => applySettings(s));
 document.getElementById('btn-settings')!.addEventListener('click', () => dialog.show());
 document.getElementById('btn-clear-history')!.addEventListener('click', () => chordPanel.clear());
 void initMidi();
+initPractice();
 
 // ---- Computer-keyboard fallback ----------------------------------------------
 // Two rows: lower row = octave base+0 starting at C, upper row = base+1.
