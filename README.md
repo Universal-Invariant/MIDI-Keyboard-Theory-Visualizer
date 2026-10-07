@@ -495,14 +495,41 @@ differentiators:
 
 ---
 
-## Getting Started (Planned)
+## Getting Started
+
+All commands run from the `harmonia/` directory (plain npm — no pnpm required):
 
 ```bash
-pnpm install
-pnpm dev          # http://localhost:5173 (HTTPS recommended for MIDI permissions)
-pnpm test         # vitest — the theory engine is pure & heavily unit-tested
-pnpm build
+cd harmonia
+npm install
+npm run dev         # http://localhost:5173 (Chrome/Edge for Web MIDI)
+npm test            # vitest — theory/palette/playback engines are pure & unit-tested
+npm run typecheck   # tsc --noEmit (src) ; also: npx tsc -p tsconfig.node.json
+npm run build       # tsc && vite build -> dist/ (sourcemaps on)
+npm run preview     # serve the production build
 ```
+
+### Dev server with the `b` rebuild shortcut (`vite.config.ts`)
+
+The Vite config registers a custom CLI shortcut, mirroring the PatternsGuru setup:
+
+- **`npm run dev:loop`** (recommended) — runs `rerun.mjs`, which starts the dev
+  server in a loop. Press **`b`** in the terminal and it writes an action marker
+  (`vite_action_<project-hash>.tmp` in your OS temp dir), closes Vite, then does
+  `git pull --ff-only` → `npm run build` → restarts the server. Ctrl-C exits the
+  loop cleanly. The marker filename is keyed by a base64url hash of the project
+  directory, so several projects can use this pattern simultaneously without
+  colliding.
+- **`npm run dev`** — plain Vite; pressing `b` still writes the marker and shuts
+  the server down (restart manually). This matches the reference behavior where
+  the plugin only signals the action; the wrapper script is what loops.
+
+Notes on adapting the reference config to this project: Harmonia is vanilla
+TypeScript (no React), so `@vitejs/plugin-react` was dropped; there are no
+workspaces, so `optimizeDeps.exclude` (@mpg/*) was removed; `host: true`,
+`port: 5173`, `outDir: dist`, and `sourcemap: true` were kept. Node built-ins
+(`fs/path/os`) used by the config are typed via `@types/node` +
+`tsconfig.node.json`.
 
 Development order (each step independently useful):
 
@@ -534,5 +561,7 @@ MIDI smoke tests.
 
 ---
 
-*Status: this repository currently contains only this specification. Implementation
-begins with v0.1 (MIDI in + 88-key view).*
+*Status: v0.1–v0.5 implemented in `harmonia/` (MIDI in/out, 3 keyboard modes, Bayesian
+triad analyzer with key/mode priors + ghost-note memory, staff notation, chord palette
+system, metronome/sequencer/practice panel). 37 unit tests passing. Next up per the
+roadmap above: extended chord vocabulary (7ths/6ths/sus), learned priors, recording.*

@@ -63,8 +63,8 @@ describe('functionLabel', () => {
   it('marks chromatic roots NONDIATONIC', () => {
     // Root on F# is not a degree of the C major scale.
     expect(functionLabel(6, [6, 10, 1], C_MAJOR)).toBe('NONDIATONIC');
-    // Root on Bb is not a degree of the F major scale.
-    expect(functionLabel(10, [10, 2, 5], F_MAJOR)).toBe('NONDIATONIC');
+    // Root on Eb is not a degree of the F major scale (Bb IS — see IV test above).
+    expect(functionLabel(3, [3, 7, 10], F_MAJOR)).toBe('NONDIATONIC');
   });
 
   it('works off the tonic pitch class, not just C', () => {
