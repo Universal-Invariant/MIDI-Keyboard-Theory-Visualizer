@@ -47,10 +47,15 @@ export type ChordQualityId =
   | 'minor'
   | 'diminished'
   | 'augmented'
-  // Reserved for later phases (README §6): sevenths, sixths, slash chords…
   | 'dom7'
   | 'maj7'
   | 'min7'
+  | 'm7b5'
+  | 'dim7'
+  | 'min6'
+  | 'six'
+  | 'sus2'
+  | 'sus4'
   | 'unknown';
 
 export interface ChordCandidate {

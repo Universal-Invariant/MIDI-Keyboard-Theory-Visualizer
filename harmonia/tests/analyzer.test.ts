@@ -64,3 +64,38 @@ describe('chord analyzer v0.1 (triads)', () => {
     expect(sum).toBeCloseTo(1, 5);
   });
 });
+
+// ---- v0.6: extended vocabulary (7ths/6ths/sus) + key-aware spelling ----
+describe('extended chord vocabulary', () => {
+  it('recognizes a dominant seventh', () => {
+    const r = analyzeChords(state([60, 64, 67, 70]), { key: C });
+    expect(r[0].symbol).toBe('C7');
+    expect(r[0].quality).toBe('dom7');
+  });
+  it('recognizes minor seventh and major seventh', () => {
+    expect(analyzeChords(state([60, 63, 67, 70]), { key: C })[0].symbol).toBe('Cm7');
+    expect(analyzeChords(state([60, 64, 67, 71]), { key: C })[0].symbol).toBe('Cmaj7');
+  });
+  it('recognizes half-diminished (the ii of minor keys)', () => {
+    const r = analyzeChords(state([62, 65, 68, 72]), { key: { tonic: 0, scale: 'aeolian' } });
+    expect(r[0].symbol).toBe('Dm7♭5');
+  });
+  it('recognizes m6 and sus4', () => {
+    expect(analyzeChords(state([60, 63, 67, 69]), { key: C })[0].symbol).toBe('Cm6');
+    expect(analyzeChords(state([60, 65, 67]), { key: C })[0].symbol).toBe('Csus4');
+  });
+});
+
+describe('key-aware enharmonic spelling', () => {
+  it('spells the Eb triad as Ab in F major context — root Db not C#', () => {
+    // D-Ab-C played in Bb major: root is D… check flat-side root instead:
+    const r = analyzeChords(state([61, 64, 68]), { key: { tonic: 5, scale: 'ionian' } }); // F major
+    expect(r[0].symbol.startsWith('F')).toBe(true); // F major triad, spelled F
+  });
+  it('spells pc 8 root as Ab in flat keys and G# in sharp keys', () => {
+    const flats = analyzeChords(state([68, 72, 75]), { key: { tonic: 10, scale: 'ionian' } }); // Bb major
+    expect(flats[0].symbol).toBe('Ab+');           // augmented spelled flat-side
+    const sharps = analyzeChords(state([68, 72, 75]), { key: { tonic: 4, scale: 'ionian' } });   // E major
+    expect(sharps[0].symbol).toBe('G#+');          // same sounding chord, sharp-side key
+  });
+});

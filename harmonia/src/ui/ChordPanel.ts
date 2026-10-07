@@ -7,10 +7,12 @@
 
 import type { ChordCandidate } from '../core/types.ts';
 import { pcName, pitchClass, octaveNumber } from '../core/theory/pitch.ts';
+import type { ChordQualityId } from '../core/types.ts';
 
 export interface HistoryEntry {
   symbol: string;
   candidates: ChordCandidate[];
+  quality: ChordQualityId;
   pcs: number[];        // pitch classes captured at commit time
   pitches: number[];    // actual MIDI pitches (for staff drawing + replay)
   timestamp: number;
@@ -80,7 +82,7 @@ export class ChordPanel {
   /** Commit the currently-held chord to history (call on note-off group / chord change). */
   commitHistory(candidates: ChordCandidate[], pcs: number[], timestamp: number, pitches: number[] = []): void {
     if (candidates.length === 0) return;
-    const entry: HistoryEntry = { symbol: candidates[0].symbol, candidates, pcs, pitches, timestamp };
+    const entry: HistoryEntry = { symbol: candidates[0].symbol, quality: candidates[0].quality, candidates, pcs, pitches, timestamp };
     // Collapse repeats of the same top symbol.
     const last = this.history[this.history.length - 1];
     if (last && last.symbol === entry.symbol) return;
@@ -110,6 +112,7 @@ export class ChordPanel {
       });
       const sym = document.createElement('div');
       sym.className = 'hist-symbol';
+      sym.dataset.quality = h.quality;
       sym.textContent = h.symbol;
       const staff = renderStaffSvg(h.pitches.length ? h.pitches : h.pcs.map((pc) => pc + 60));
       staff.classList.add('hist-staff');

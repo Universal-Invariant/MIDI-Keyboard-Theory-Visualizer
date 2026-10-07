@@ -28,6 +28,10 @@ export interface AppSettings {
   pcColors: (string | null)[];
   /** Custom colors keyed by function label (I..VII, NONDIATONIC). */
   functionColors: Record<string, string>;
+  /** Chord mode: color per chord quality id ('', 'm', 'dim', '+', '7', 'maj7', …). */
+  qualityColors: Record<string, string>;
+  /** Chord mode: color per exact symbol ("Ab7#5"); wins over the quality color. */
+  symbolColors: Record<string, string>;
   /** Playback */
   bpm: number;
   meterId: string;
@@ -36,6 +40,14 @@ export interface AppSettings {
   playToOutput: boolean;      // send MIDI out to hardware as well as on-screen
   progression: ProgressionStep[];
 }
+
+const QUALITY_SWATCHES: { id: string; label: string }[] = [
+  { id: '', label: 'maj' }, { id: 'm', label: 'min' }, { id: 'dim', label: 'dim' },
+  { id: '+', label: 'aug' }, { id: '7', label: '7' }, { id: 'maj7', label: 'maj7' },
+  { id: 'm7', label: 'm7' }, { id: 'm7♭5', label: 'm7♭5' }, { id: 'dim7', label: 'dim7' },
+  { id: '6', label: '6' }, { id: 'm6', label: 'm6' }, { id: 'sus4', label: 'sus4' },
+  { id: 'sus2', label: 'sus2' },
+];
 
 const STORAGE_KEY = 'harmonia.settings.v1';
 
@@ -51,6 +63,8 @@ export function loadSettings(): AppSettings {
     paletteMode: 'mono',
     pcColors: PC_COLORS.map(() => null),
     functionColors: { ...FUNCTION_COLORS },
+    qualityColors: {},
+    symbolColors: {},
     bpm: 100,
     meterId: '4/4',
     loopProgression: true,
@@ -68,6 +82,8 @@ export function loadSettings(): AppSettings {
       pcColors: Array.isArray(parsed.pcColors) && parsed.pcColors.length === 12
         ? parsed.pcColors : defaults.pcColors,
       functionColors: { ...defaults.functionColors, ...(parsed.functionColors ?? {}) },
+      qualityColors: { ...(parsed.qualityColors ?? {}) },
+      symbolColors: { ...(parsed.symbolColors ?? {}) },
     };
     // Re-derive half-life from the configured memory window (≈2 half-lives to fade).
     if (parsed.ghostMemoryMs && !parsed.ghostHalfLifeMs) s.ghostHalfLifeMs = Math.max(100, s.ghostMemoryMs / 2);
@@ -188,13 +204,59 @@ export class SettingsDialog {
     const renderPaletteEditor = () => {
       paletteEditor.innerHTML = '';
       const mode = selPalette.value as PaletteMode;
-      if (mode === 'mono' || mode === 'chord') {
+      if (mode === 'mono') {
         const hint = document.createElement('div');
         hint.className = 'palette-hint';
-        hint.textContent = mode === 'mono'
-          ? 'All active keys share one highlight color.'
-          : 'Keys take the color of the chord being played — major chords use the root\'s hue, minor/dim/aug are shaded variants. Change the Key above to recolor by diatonic function.';
+        hint.textContent = 'All active keys share one highlight color.';
         paletteEditor.appendChild(hint);
+        return;
+      }
+      if (mode === 'chord') {
+        const hint = document.createElement('div');
+        hint.className = 'palette-hint';
+        hint.textContent = 'Keys take the color of the recognized chord. Default: major uses the root\'s hue, minor/dim/aug are shaded variants. Override per quality or per exact symbol below; uncolored symbols fall back to the auto scheme.';
+        paletteEditor.appendChild(hint);
+        const grid = document.createElement('div');
+        grid.className = 'swatch-grid';
+        for (const q of QUALITY_SWATCHES) {
+          grid.appendChild(swatch(q.label || 'maj', this.settings.qualityColors[q.id] ?? '', (c) => {
+            this.settings.qualityColors[q.id] = c;
+          }));
+        }
+        for (const [sym, color] of Object.entries(this.settings.symbolColors)) {
+          grid.appendChild(swatch(sym, color, (c) => { this.settings.symbolColors[sym] = c; }));
+        }
+        paletteEditor.appendChild(grid);
+        const row = document.createElement('div');
+        row.className = 'swatch-add';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.placeholder = 'symbol e.g. Ab7#5';
+        inp.size = 10;
+        const pick = document.createElement('input');
+        pick.type = 'color';
+        pick.value = '#8e4ec6';
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.textContent = 'Add color';
+        addBtn.addEventListener('click', () => {
+          const sym = inp.value.trim();
+          if (!sym) return;
+          this.settings.symbolColors[sym] = pick.value;
+          renderPaletteEditor();
+          commit();
+        });
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.textContent = 'Clear overrides';
+        clearBtn.addEventListener('click', () => {
+          this.settings.qualityColors = {};
+          this.settings.symbolColors = {};
+          renderPaletteEditor();
+          commit();
+        });
+        row.append(inp, pick, addBtn, clearBtn);
+        paletteEditor.appendChild(row);
         return;
       }
       const grid = document.createElement('div');

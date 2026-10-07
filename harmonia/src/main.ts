@@ -49,6 +49,8 @@ function paletteCtx(): PaletteContext {
     currentChordPcs: best?.pcs ?? [],
     pcColors: settings.pcColors,
     functionColors: settings.functionColors,
+    qualityColors: settings.qualityColors,
+    symbolColors: settings.symbolColors,
   };
 }
 

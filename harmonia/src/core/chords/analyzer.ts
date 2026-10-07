@@ -16,9 +16,10 @@
  */
 
 import type { ChordCandidate, NoteState, KeySignatureSetting } from '../types.ts';
-import { enumerateCandidates, chordPcs } from './vocabulary.ts';
+import { enumerateCandidates, chordPcs, DEFAULT_TEMPLATES } from './vocabulary.ts';
 import { Priors } from './priors.ts';
-import { pcName, QUALITY_SUFFIX } from '../theory/pitch.ts';
+import { spellPc } from '../theory/pitch.ts';
+import { scaleLetterIndices, getScale } from '../theory/scales.ts';
 
 export interface AnalyzeOptions {
   key: KeySignatureSetting;
@@ -26,7 +27,7 @@ export interface AnalyzeOptions {
   topN?: number;
 }
 
-const CANDIDATES = enumerateCandidates();
+const CANDIDATES = enumerateCandidates(DEFAULT_TEMPLATES);
 
 /** Softmax with temperature so probability spreads reflect relative log-scores. */
 function softmax(scores: number[], temperature = 1): number[] {
@@ -55,6 +56,8 @@ export function analyzeChords(state: NoteState, opts: AnalyzeOptions): ChordCand
     ? Math.min(...state.held.map((n) => n.pitch))
     : undefined;
   const priors = new Priors({ key: opts.key, bassPitch });
+  // Key-aware enharmonic spelling: letters consumed by the selected scale.
+  const letterIdx = scaleLetterIndices(opts.key.tonic, getScale(opts.key.scale));
 
   const raw: { cand: Omit<ChordCandidate, 'probability' | 'score' | 'reason'>; logScore: number; reason: string }[] = [];
 
@@ -82,7 +85,7 @@ export function analyzeChords(state: NoteState, opts: AnalyzeOptions): ChordCand
     const logPrior = priors.logPrior(chordPcList);
     const logScore = logLik + logPrior;
 
-    const symbol = pcName(rootPc) + (QUALITY_SUFFIX[template.quality] ?? '?');
+    const symbol = spellPc(rootPc, letterIdx) + template.symbolSuffix;
     const reason =
       `covers ${(coverage * 100).toFixed(0)}% of notes, ` +
       `${(purity * 100).toFixed(0)}% pure` +

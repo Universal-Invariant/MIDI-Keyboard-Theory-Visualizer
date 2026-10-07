@@ -62,7 +62,7 @@ export const FUNCTION_COLORS: Record<string, string> = {
 
 /** Common chord aliases so user-custom overrides can match many spellings. */
 const SYMBOL_ALIASES: [string, string[]][] = [
-  ['dim', ['dim', 'o', 'ø']],   // canonicalize first (longest)
+  ['dim', ['dim7', 'dim', 'o', 'ø']], // canonicalize longest alias first
   ['aug', ['aug', '+', '^+']],
   ['min', ['min', 'mi', 'm']],
 ];
@@ -70,19 +70,13 @@ const SYMBOL_ALIASES: [string, string[]][] = [
 function normalizeSymbol(sym: string): string {
   let s = sym.trim();
   for (const [canon, alts] of SYMBOL_ALIASES) {
-    for (const a of alts) {
+    for (const a of alts.sort((x, y) => y.length - x.length)) {
       if (a !== canon && s.endsWith(a)) { s = s.slice(0, -a.length) + canon; break; }
     }
   }
   return s.replace(/\s+/g, '');
 }
 
-function hashString(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return Math.abs(h);
-}
-void hashString; // reserved for future per-symbol stable overrides
 
 /** Root pc + quality suffix extracted from a chord symbol like "Ab+", "Cm7", "F#dim". */
 export function parseSymbolRoot(symbol: string): { rootPc: number; suffix: string } | null {
@@ -129,6 +123,8 @@ export interface PaletteContext {
   functionColors?: Record<string, string>;
   /** Chord-mode palette: explicit color per quality id (null = auto by root hue). */
   qualityColors?: Partial<Record<string, string | null>>;
+  /** Chord-mode palette: explicit color per exact symbol, e.g. "Ab7♯5" (wins over quality). */
+  symbolColors?: Record<string, string>;
 }
 
 /** Auto color for a chord in "chord" mode when no quality override is set:
@@ -164,6 +160,7 @@ export function paletteColorFor(pitch: number, ctx: PaletteContext): string | nu
       if (!ctx.currentSymbol) return null;
       const parsed = parseSymbolRoot(ctx.currentSymbol);
       if (!parsed) return null;
+      if (ctx.symbolColors?.[ctx.currentSymbol]) return ctx.symbolColors[ctx.currentSymbol];
       const key = parsed.suffix.toLowerCase() || 'major';
       const override = ctx.qualityColors?.[key] ?? ctx.qualityColors?.['major'] ;
       if (override) return override;
