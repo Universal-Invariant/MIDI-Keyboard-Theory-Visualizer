@@ -1,0 +1,5 @@
+/harmonia/tests
+/harmonia/node_modules/
+/harmonia/dist/
+/harmonia/**/*.tsbuildinfo
+

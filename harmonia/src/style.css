@@ -1,0 +1,115 @@
+/* ---- Harmonia v0.1 theme -------------------------------------------------- */
+:root {
+  --bg: #14161c;
+  --panel: #1d2029;
+  --panel2: #232735;
+  --text: #e8eaf2;
+  --muted: #9aa1b5;
+  --accent: #ffb547;
+  --accent2: #6ea8fe;
+  --white-key: #f4f2ec;
+  --white-key-active: var(--accent);
+  --black-key: #23252d;
+  --black-key-active: var(--accent2);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif; }
+
+#topbar { display: flex; align-items: center; gap: 12px; padding: 10px 18px;
+  background: var(--panel); border-bottom: 1px solid #2c3040; }
+#topbar h1 { font-size: 18px; margin: 0; }
+#key-badge, #midi-status { font-size: 12px; color: var(--muted); background: var(--panel2);
+  padding: 3px 10px; border-radius: 999px; }
+.spacer { flex: 1; }
+button { background: var(--panel2); color: var(--text); border: 1px solid #343a4e;
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: #201500; border-color: var(--accent); font-weight: 600; }
+
+main { padding: 18px; max-width: 1200px; margin: 0 auto; }
+
+/* ---- chord area ------------------------------------------------------------ */
+#chord-area { display: grid; grid-template-columns: minmax(280px, 1fr) 2fr; gap: 16px; margin-bottom: 18px; }
+#current-panel, #history-panel { background: var(--panel); border-radius: 14px; padding: 14px 16px; }
+.panel-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 6px; }
+#current-chord { font-size: 56px; font-weight: 800; line-height: 1.1; color: var(--muted); }
+#current-chord.has-chord { color: var(--accent); }
+#chord-alternatives { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.alt { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); }
+.prob-bar { flex: 1; height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent2) var(--p, 0%), #333a52 var(--p, 0%)); }
+.prob-num { width: 40px; text-align: right; color: var(--muted); font-size: 12px; }
+
+#chord-history { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; min-height: 84px; }
+.hist-card { background: var(--panel2); border: 1px solid #303548; border-radius: 10px; padding: 10px;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; }
+.hist-symbol { font-size: 26px; font-weight: 700; color: var(--accent2); }
+.hist-notes { font-size: 12px; color: var(--muted); }
+
+/* ---- keyboard --------------------------------------------------------------- */
+#keyboard { background: var(--panel); border-radius: 14px; padding: 16px; }
+.kb { position: relative; width: 100%; margin-bottom: 10px; }
+.kb:last-child { margin-bottom: 0; }
+.kb-88 { height: 170px; }
+.kb-octave { height: 150px; }
+.kb-whites, .kb-blacks { position: absolute; inset: 0; }
+.key { position: absolute; top: 0; border-radius: 0 0 6px 6px; cursor: pointer; user-select: none; }
+.key.white { height: 100%; background: var(--white-key); border: 1px solid #b9b5aa; z-index: 1; }
+.key.black { height: 62%; background: var(--black-key); border: 1px solid #000; z-index: 2; }
+.key.white.active { background: linear-gradient(var(--white-key), var(--white-key-active) calc(100% * var(--vel, 1))); }
+.key.black.active { background: linear-gradient(#3a3f52, var(--black-key-active) calc(100% * var(--vel, 1))); }
+.key.ghost { opacity: 0.55; filter: saturate(0.6); }
+.key.white.ghost.active { background: repeating-linear-gradient(-45deg, var(--white-key-active), var(--white-key-active) 6px, var(--white-key) 6px, var(--white-key) 12px); }
+.key.black.ghost.active { background: repeating-linear-gradient(-45deg, var(--black-key-active), var(--black-key-active) 5px, var(--black-key) 5px, var(--black-key) 10px); }
+.key-label { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; color: #8a8578; pointer-events: none; }
+.key.black .key-label { color: #aab; bottom: 4px; font-size: 9px; }
+.oct-badge { position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; font-weight: 700; color: #fff; background: #d1495b; border-radius: 8px;
+  padding: 1px 6px; pointer-events: none; }
+.oct-badge:empty { display: none; }
+
+#hint { color: var(--muted); font-size: 13px; margin-top: 14px; }
+#hint b { color: var(--text); }
+
+/* ---- modal ------------------------------------------------------------------- */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex;
+  align-items: center; justify-content: center; z-index: 50; }
+.modal-overlay.hidden { display: none; }
+.modal { background: var(--panel); border: 1px solid #333a4e; border-radius: 14px; padding: 20px 24px;
+  width: min(440px, 92vw); display: flex; flex-direction: column; gap: 12px; }
+.modal h2 { margin: 0 0 4px; font-size: 18px; }
+.modal label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.modal select { background: var(--panel2); color: var(--text); border: 1px solid #343a4e;
+  border-radius: 8px; padding: 7px 9px; font-size: 14px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
+/* ---- palette-aware key colors ------------------------------------------------ */
+.key.white.active { background: linear-gradient(var(--white-key), var(--hlcolor, var(--white-key-active)) calc(100% * var(--vel, 1))); }
+.key.black.active { background: linear-gradient(#3a3f52, var(--hlcolor, var(--black-key-active)) calc(100% * var(--vel, 1))); }
+.key.ghost { opacity: calc(0.18 + 0.42 * var(--gw, 1)); filter: saturate(0.4) brightness(0.9); transition: opacity 160ms linear; }
+.palette-editor { display: flex; flex-direction: column; gap: 8px; }
+.palette-hint { font-size: 12px; color: var(--muted); }
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
+.swatch { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
+.swatch input[type="color"] { width: 26px; height: 22px; padding: 0; border: 1px solid #343a4e; border-radius: 5px; background: none; cursor: pointer; }
+
+/* ---- practice panel ------------------------------------------------------------ */
+.practice-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; margin-top: 18px; }
+.practice .card, .transport.card { background: var(--panel); border-radius: 14px; padding: 14px 16px; }
+.practice .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.bpm { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.bpm input { width: 64px; background: var(--panel2); color: var(--text); border: 1px solid #343a4e; border-radius: 8px; padding: 6px 8px; font-size: 14px; }
+.beat-dots { display: flex; gap: 8px; margin-top: 10px; }
+.beat-dots span { width: 14px; height: 14px; border-radius: 50%; background: #333a52; transition: background 90ms, transform 90ms; }
+.beat-dots span.on { background: var(--accent2); transform: scale(1.25); }
+.beat-dots span.strong { background: var(--accent); }
+button.active-toggle { border-color: var(--accent2); color: var(--accent2); }
+button.playing { background: var(--accent2); color: #06101f; border-color: var(--accent2); font-weight: 600; }
+.prog-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sym-input { flex: 1; background: var(--panel2); color: var(--text); border: 1px solid #343a4e; border-radius: 8px; padding: 6px 9px; font-size: 14px; }
+.beats-input { width: 70px; background: var(--panel2); color: var(--text); border: 1px solid #343a4e; border-radius: 8px; padding: 6px 8px; font-size: 14px; }
+.hint-small { font-size: 11px; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.practice-status { font-size: 12px; color: var(--muted); margin-top: 6px; }
+#current-staff svg { display: block; margin-top: 4px; }
+.hist-staff { width: 110px; }
