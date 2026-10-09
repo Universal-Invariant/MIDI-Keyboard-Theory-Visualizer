@@ -5,6 +5,15 @@ import './style.css';
  * Wiring: WebMidiAdapter → NoteBus → (KeyboardView, ChordPanel) + analyzer loop.
  * Also supports computer-keyboard play as a no-hardware fallback so the app is
  * usable immediately: A/K = C, W = C#, S/L = D, E = Eb, D/; = E … J = upper C.
+ *
+ * Layout notes:
+ *  - The keyboard lives in its own panel with a user-resizable height
+ *    (KeyboardPanel) persisted across reloads — it no longer scales with the
+ *    browser window.
+ *  - The current chord symbol is centered with the recent-chord history strip
+ *    above it (see index.html / style.css).
+ *  - The scale that the analysis is weighted toward (root + mode) is selectable
+ *    directly in the top bar; ⚙ Settings has the same controls.
  */
 
 import type { MidiNoteEvent, NoteState } from './core/types.ts';
@@ -13,28 +22,45 @@ import { NoteBus } from './core/notes/NoteBus.ts';
 import { analyzeChords } from './core/chords/analyzer.ts';
 import { WebMidiAdapter } from './midi/WebMidiAdapter.ts';
 import { KeyboardView } from './ui/KeyboardView.ts';
+import { KeyboardPanel } from './ui/KeyboardPanel.ts';
 import { ChordPanel } from './ui/ChordPanel.ts';
 import { PracticePanel } from './ui/PracticePanel.ts';
 import { SettingsDialog, loadSettings, saveSettings } from './ui/SettingsDialog.ts';
 import type { AppSettings } from './ui/SettingsDialog.ts';
+import { NOTE_NAMES_FLAT } from './core/theory/pitch.ts';
+import { SCALES, keyLabel } from './core/theory/scales.ts';
 
 // ---- DOM refs ---------------------------------------------------------------
 const keyboardRoot = document.getElementById('keyboard')!;
+const keyboardPanelEl = document.getElementById('keyboard-panel')!;
+const keyboardScrollEl = document.getElementById('keyboard-scroll')!;
+const kbResizeHandle = document.getElementById('kb-resize-handle')!;
 const currentEl = document.getElementById('current-chord')!;
 const altsEl = document.getElementById('chord-alternatives')!;
 const historyEl = document.getElementById('chord-history')!;
+const historyDetailEl = document.getElementById('history-detail')!;
 const currentStaffEl = document.getElementById('current-staff')!;
 const practiceRoot = document.getElementById('practice');
 const midiStatusEl = document.getElementById('midi-status')!;
-const keyBadgeEl = document.getElementById('key-badge')!;
+const selAnalysisRoot = document.getElementById('sel-analysis-root') as HTMLSelectElement;
+const selAnalysisScale = document.getElementById('sel-analysis-scale') as HTMLSelectElement;
 
 // ---- Core state -------------------------------------------------------------
 const settings: AppSettings = loadSettings();
 const bus = new NoteBus({ ghostHalfLifeMs: settings.ghostHalfLifeMs, ghostMaxAgeMs: settings.ghostMemoryMs });
 const adapter = new WebMidiAdapter();
 const keyboard = new KeyboardView(keyboardRoot, settings.vizMode, settings.baseOctave);
+const keyboardPanel = new KeyboardPanel({
+  panel: keyboardPanelEl,
+  scrollEl: keyboardScrollEl,
+  handle: kbResizeHandle,
+  defaultPx: 180,
+  loadHeight: () => settings.keyboardHeightPx ?? null,
+  saveHeight: (px) => { settings.keyboardHeightPx = px; saveSettings(settings); },
+});
 const chordPanel = new ChordPanel(currentEl, altsEl, historyEl);
 chordPanel.attachLiveStaff(currentStaffEl);
+chordPanel.attachDetailPanel(historyDetailEl);
 
 let lastCandidates = analyzeEmpty();
 function analyzeEmpty() { return [] as ReturnType<typeof analyzeChords>; }

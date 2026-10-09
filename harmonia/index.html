@@ -9,7 +9,11 @@
   <body>
     <header id="topbar">
       <h1>🎹 Harmonia</h1>
-      <span id="key-badge" title="Current key / mode (change in Settings)">C ionian</span>
+      <div id="analysis-key" class="key-select" role="group" aria-label="Scale used for chord analysis" title="Root &amp; scale that the chord analysis is based on">
+        <span class="ks-label">Analysis key</span>
+        <select id="sel-analysis-root" aria-label="Root note of the analysis scale"></select>
+        <select id="sel-analysis-scale" aria-label="Scale / mode of the analysis key"></select>
+      </div>
       <span id="midi-status">MIDI: initializing…</span>
       <span class="spacer"></span>
       <button id="btn-clear-history" type="button">Clear History</button>
@@ -20,22 +24,33 @@
       <section id="chord-area">
         <div id="current-panel">
           <div class="panel-label">Current chord</div>
-          <div id="current-chord">—</div>
+          <div id="chord-current-stack">
+            <div id="chord-history" aria-label="Last 4 chords"></div>
+            <div id="current-chord">—</div>
+          </div>
           <div id="current-staff" aria-label="Music notation of the notes you are playing"></div>
           <div id="chord-alternatives"></div>
         </div>
         <div id="history-panel">
-          <div class="panel-label">Last 4 chords</div>
-          <div id="chord-history"></div>
+          <div class="panel-label">Chord history</div>
+          <div id="history-detail"></div>
         </div>
       </section>
-
-      <section id="keyboard"></section>
 
       <p id="hint">
         Play a MIDI controller (pick the input port in ⚙ Settings), click the keys, or use your
         computer keyboard: <b>A W S E D F T G Y H U J</b> = one octave, <b>K O L P ;</b> extends it.
+        Drag the handle under the keyboard to resize it.
       </p>
+
+      <section id="keyboard-panel" aria-label="Keyboard">
+        <div class="panel-label kb-title">
+          Keyboard
+          <span class="kb-resize-hint">drag the bar below to change height</span>
+        </div>
+        <div id="keyboard-scroll"><div id="keyboard"></div></div>
+        <div id="kb-resize-handle" class="resize-handle" title="Drag to resize keyboard height" aria-hidden="true"></div>
+      </section>
 
       <section id="practice"></section>
     </main>

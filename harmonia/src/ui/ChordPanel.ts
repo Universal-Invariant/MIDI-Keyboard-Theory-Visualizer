@@ -1,8 +1,9 @@
 /**
  * ChordPanel — the app's centerpiece (README §2/§3): current chord with top-N
- * weighted interpretations, plus a last-4 chord history strip. History cards
- * show a lightweight SVG staff rendering of the notes actually played and are
- * clickable to replay them (wired via onReplay callback).
+ * weighted interpretations, plus a last-4 chord history strip. The history strip
+ * sits *above* the big current-chord symbol, which stays centered in the panel;
+ * each entry also gets a detailed card in the side panel (staff + alternatives).
+ * Cards are clickable to replay the voicing (wired via onReplay callback).
  */
 
 import type { ChordCandidate } from '../core/types.ts';
@@ -24,6 +25,7 @@ export class ChordPanel {
   private currentEl: HTMLElement;
   private alternativesEl: HTMLElement;
   private historyEl: HTMLElement;
+  private detailEl: HTMLElement | null = null;
   private history: HistoryEntry[] = [];
   private liveStaff: HTMLElement | null = null;
   private lastPitches: number[] = [];
@@ -33,6 +35,12 @@ export class ChordPanel {
     this.currentEl = currentEl;
     this.alternativesEl = alternativesEl;
     this.historyEl = historyEl;
+  }
+
+  /** Attach a container that gets one detailed card per committed chord. */
+  attachDetailPanel(el: HTMLElement): void {
+    this.detailEl = el;
+    this.renderHistory();
   }
 
   /** Called on every analysis tick with fresh ranked candidates ([] when silence). */
@@ -101,26 +109,74 @@ export class ChordPanel {
   }
 
   private renderHistory(): void {
+    // Compact strip above the current-chord symbol.
     this.historyEl.innerHTML = '';
+    // Detailed cards in the side panel.
+    if (this.detailEl) this.detailEl.innerHTML = '';
     for (const h of this.history) {
+      const pitches = h.pitches.length ? h.pitches : h.pcs.map((pc) => pc + 60);
+
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'hist-chip';
+      chip.dataset.quality = h.quality;
+      chip.textContent = h.symbol;
+      chip.title = `${pitches.map((p) => pcName(pitchClass(p)) + octaveNumber(p)).join(' ')} — click to replay`;
+      chip.addEventListener('click', () => this.onReplay?.(pitches));
+      this.historyEl.appendChild(chip);
+
+      if (!this.detailEl) continue;
       const card = document.createElement('div');
       card.className = 'hist-card';
       card.title = 'Click to replay this chord';
-      card.addEventListener('click', () => {
-        const pitches = h.pitches.length ? h.pitches : h.pcs.map((pc) => pc + 60);
-        this.onReplay?.(pitches);
-      });
-      const sym = document.createElement('div');
+      card.addEventListener('click', () => this.onReplay?.(pitches));
+
+      const head = document.createElement('div');
+      head.className = 'hist-head';
+      const sym = document.createElement('span');
       sym.className = 'hist-symbol';
       sym.dataset.quality = h.quality;
       sym.textContent = h.symbol;
-      const staff = renderStaffSvg(h.pitches.length ? h.pitches : h.pcs.map((pc) => pc + 60));
+      const time = document.createElement('span');
+      time.className = 'hist-time';
+      // History timestamps come from performance.now(); show elapsed since load.
+      time.textContent = formatAgo(performance.now() - h.timestamp);
+      head.append(sym, document.createTextNode(' '), time);
+
+      const staff = renderStaffSvg(pitches);
       staff.classList.add('hist-staff');
+
       const notes = document.createElement('div');
       notes.className = 'hist-notes';
-      notes.textContent = (h.pitches.length ? h.pitches : h.pcs.map((pc) => pc + 60)).map((p) => pcName(pitchClass(p)) + octaveNumber(p)).join(' ');
-      card.append(sym, staff, notes);
-      this.historyEl.appendChild(card);
+      notes.textContent = pitches.map((p) => pcName(pitchClass(p)) + octaveNumber(p)).join(' ');
+
+      const alts = document.createElement('div');
+      alts.className = 'hist-alts';
+      for (const c of h.candidates.slice(1, 3)) {
+        const row = document.createElement('div');
+        row.className = 'alt';
+        const bar = document.createElement('span');
+        bar.className = 'prob-bar';
+        bar.style.setProperty('--p', Math.round(c.probability * 100) + '%');
+        row.append(document.createTextNode(c.symbol), bar, pctLabel(c.probability));
+        row.title = c.reason;
+        alts.appendChild(row);
+      }
+
+      card.append(head, staff, notes, alts);
+      this.detailEl.appendChild(card);
+    }
+    if (this.detailEl && this.history.length === 0) {
+      const ph = document.createElement('div');
+      ph.className = 'hist-empty';
+      ph.textContent = 'No chords yet — play a chord and release it to add it here.';
+      this.detailEl.appendChild(ph);
+    }
+    if (this.history.length === 0) {
+      const ph = document.createElement('span');
+      ph.className = 'hist-empty';
+      ph.textContent = 'history appears here above the current chord';
+      this.historyEl.appendChild(ph);
     }
   }
 }
@@ -199,4 +255,14 @@ function pctLabel(p: number): HTMLElement {
   s.className = 'prob-num';
   s.textContent = `${Math.round(p * 100)}%`;
   return s;
+}
+
+/** "just now / 12 s ago / 3 m ago" style label for a millisecond delta. */
+function formatAgo(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 2) return 'just now';
+  if (sec < 60) return `${sec} s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} m ${sec % 60 ? sec % 60 + ' s' : ''} ago`.replace('  ', ' ');
+  return `${Math.floor(min / 60)} h ago`;
 }
