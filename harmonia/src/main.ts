@@ -28,7 +28,7 @@ import { PracticePanel } from './ui/PracticePanel.ts';
 import { SettingsDialog, loadSettings, saveSettings } from './ui/SettingsDialog.ts';
 import type { AppSettings } from './ui/SettingsDialog.ts';
 import { NOTE_NAMES_FLAT } from './core/theory/pitch.ts';
-import { SCALES, keyLabel } from './core/theory/scales.ts';
+import { SCALES } from './core/theory/scales.ts';
 
 // ---- DOM refs ---------------------------------------------------------------
 const keyboardRoot = document.getElementById('keyboard')!;
@@ -45,12 +45,24 @@ const midiStatusEl = document.getElementById('midi-status')!;
 const selAnalysisRoot = document.getElementById('sel-analysis-root') as HTMLSelectElement;
 const selAnalysisScale = document.getElementById('sel-analysis-scale') as HTMLSelectElement;
 
+// Populate the top-bar analysis-key selects (root + scale/mode).
+NOTE_NAMES_FLAT.forEach((n, pc) => {
+  const o = document.createElement('option');
+  o.value = String(pc); o.textContent = n;
+  selAnalysisRoot.appendChild(o);
+});
+SCALES.forEach((s) => {
+  const o = document.createElement('option');
+  o.value = s.id; o.textContent = s.name;
+  selAnalysisScale.appendChild(o);
+});
+
 // ---- Core state -------------------------------------------------------------
 const settings: AppSettings = loadSettings();
 const bus = new NoteBus({ ghostHalfLifeMs: settings.ghostHalfLifeMs, ghostMaxAgeMs: settings.ghostMemoryMs });
 const adapter = new WebMidiAdapter();
 const keyboard = new KeyboardView(keyboardRoot, settings.vizMode, settings.baseOctave);
-const keyboardPanel = new KeyboardPanel({
+new KeyboardPanel({
   panel: keyboardPanelEl,
   scrollEl: keyboardScrollEl,
   handle: kbResizeHandle,
@@ -114,10 +126,22 @@ function applySettings(s: AppSettings): void {
   bus.setGhostMemory(s.ghostHalfLifeMs, s.ghostMemoryMs);
   if (keyboard.currentMode !== s.vizMode) keyboard.setMode(s.vizMode, s.baseOctave);
   else keyboard.setBaseOctave(s.baseOctave);
-  keyBadgeEl.textContent = `${['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'][s.key.tonic]} ${s.key.scale}`;
+  // Keep the top-bar analysis-key selects in sync with settings (e.g. changed
+  // from the Settings dialog) without firing a feedback loop.
+  if (Number(selAnalysisRoot.value) !== s.key.tonic) selAnalysisRoot.value = String(s.key.tonic);
+  if (selAnalysisScale.value !== s.key.scale) selAnalysisScale.value = s.key.scale;
   practice?.applySettings();
   updateMidiStatus();
 }
+
+// ---- Top-bar analysis key (root + scale) selectors --------------------------
+function onAnalysisKeyChange(): void {
+  settings.key = { tonic: Number(selAnalysisRoot.value), scale: selAnalysisScale.value };
+  saveSettings(settings);
+  applySettings(settings);
+}
+selAnalysisRoot.addEventListener('change', onAnalysisKeyChange);
+selAnalysisScale.addEventListener('change', onAnalysisKeyChange);
 
 function updateMidiStatus(): void {
   const inName = adapter.currentInputId

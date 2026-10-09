@@ -39,6 +39,8 @@ export interface AppSettings {
   playbackOctave: number;     // voicing octave for sequencer + history replay
   playToOutput: boolean;      // send MIDI out to hardware as well as on-screen
   progression: ProgressionStep[];
+  /** User-resized keyboard panel height in px (null = layout default). */
+  keyboardHeightPx: number | null;
 }
 
 const QUALITY_SWATCHES: { id: string; label: string }[] = [
@@ -71,6 +73,7 @@ export function loadSettings(): AppSettings {
     playbackOctave: 4,
     playToOutput: true,
     progression: [],
+    keyboardHeightPx: null,
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

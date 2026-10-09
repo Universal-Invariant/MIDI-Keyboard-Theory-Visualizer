@@ -404,7 +404,7 @@ export function intervalsOf(c: UcssChord, key?: KeySignatureSetting | null): num
     // removal list but no stacked extension digit). Never evict the sixth
     // from a triad whose pc merely collides with a higher degree (the added
     // ♮9 of "C /9" shares pc 9 with the major sixth).
-    const maxStacked = ext !== null ? ext : dimSeventh || frame === 'ø' ? 7 : 5;
+    const maxStacked = ext !== null ? ext : dimSeventh ? 7 : 5;
     for (const [d, v] of Object.entries(stack)) {
       const dn = Number(d);
       if ((((dn - 1) % 7) + 1) === degMod7 && dn <= maxStacked) removeSet.add(v);
@@ -495,21 +495,6 @@ export function inferFrame(c: UcssChord, key?: KeySignatureSetting | null): Fram
   }
   // Absolute pitch anchors: extension without quality ⇒ dominant; otherwise major.
   return c.extension !== null && c.extension >= 6 ? 'D' : 'M';
-}
-
-/**
- * The degree a suspension replaces. UCSS defines 2/4 as substitutions of the
- * third — but only when the third is actually part of the chord's own stack.
- * A sus color layered on an extended chord (`C9sus4` keeps its native 7th and
- * 9th) leaves the intermediate tones alone.
- */
-function suspendedThird(frame: Frame, ext: number): number | null {
-  if (ext !== 2 && ext !== 4) return null;
-  const stack = frameStack(frame);
-  const third = stack[3];
-  const seventh = stack[7];
-  if (seventh !== undefined && seventh < ext) return null; // e.g. sus over a 9th/13th stack
-  return third ?? null;
 }
 
 // ---- 1D linear output ----------------------------------------------------------
@@ -837,91 +822,62 @@ export function parseUcss(input: string, opts: ParseOpts = {}): UcssChord {
   //    other numerator token is an addition ("C /9" ⇒ add 9; "C 7 ♯11/3" keeps
   //    ext 7 because ♯11 sits AFTER it). The whole fraction grammar lives in
   //    tryFractionTail() so the legacy-paren rewrite can re-run it.
+  // NOTE: the canonical linear form "C mi 7" writes its quality as a *word*,
+  // never as "/m"; a "/x" whose denominator is a single quality char is always
+  // the traditional slash-bass (F/m = F major over A♭) and belongs to stage 4.
+  // The "/q" subscript reading is therefore disabled below (qm branch removed).
   const tryFractionTail = (): boolean => {
     const idx = rest.lastIndexOf('/');
     if (idx < 0 || rest.slice(0, idx).includes('/')) return false;
-    {
-      const preT = rest.slice(0, idx);
-      const postT = rest.slice(idx + 1).trim();
-      const qm = /^([Mm+o\u00f8])((?:\s*[\u266F\u266D#\u266E]?\d+)*)$/.exec(postT);
-      const denOk = /^[♯♭#bB♮]?\d(?:\s*[♯♭#bB♮]?\d+)*$/.test(postT);
-      // Slash-bass guard: UCSS reserves the final slash for /q and add/rem, so
-      // a denominator that is a NOTE SPELLING ("D/F#", "C/G", "Am7/B♭") must be
-      // routed to the bass stage instead. The tell is the character glued to
-      // the slash: removal lists always begin with a digit or an accidental
-      // sign (♯ ♭ #), never a letter. ASCII 'b' doubles as the note B, so it
-      // only counts as a flat when followed by a digit ("b3" ⇒ remove 3;
-      // "bb" ⇒ B♭ bass). A leading space before the slash also means bass —
-      // canonical fractions write "/rem" tight ("C 7 /3" notwithstanding: its
-      // numerator ends in the extension digit, which we accept because the
-      // denominator itself is digit-initial).
-      const firstPost = rest[idx + 1] ?? '';
-      const postIsNoteSpelling =
-        /^[A-Ga-g](?:bb?|[♯♭#♮])?$/.test(postT) && !/\d/.test(postT);
-      const slashGluedToLetterBass = /[A-Ga-g♯♭♮]$/.test(preT.trimEnd()) && !/^\d/.test(postT);
-      if (postIsNoteSpelling || slashGluedToLetterBass) return false;
-      void firstPost;
-      if (qm && !/^(?:maj|mi|min|m|M)$/i.test(preT.trim())) {
-        chord.quality = qm[1];
-        chord.qualityFromWord = true; // explicit UCSS subscript — render it back
-        for (const d of qm[2].matchAll(/\d+/g)) chord.rem.push(Number(d));
-        rest = preT.trimEnd();
-        return true;
-      }
-      if (postT === '' || denOk) {
-        // UCSS reserves the slash for the add/remove fraction and the quality
-        // subscript, so a traditional slash-bass ("D/F♯", "C/G") must be routed
-        // to the bass stage instead of being mis-read as a removal. The tell:
-        // the numerator's LAST token is a note spelling — a letter (optionally
-        // with accidentals) directly adjacent to the slash. Denominators are
-        // bare degree lists ("3", "♯11/3" ⇒ numerator ends in ♯11), never letters.
-        const preTrim = preT.trimEnd();
-        if (/^[A-Ga-g](?:[♯♭#♮]{1,2})?$/.test(preTrim)) return false;
-
-        const numPart = preT;
-        interface Tok { s: string; i: number }
-        const toks: Tok[] = [];
-        for (const m of numPart.matchAll(/(?:[♯♭♮]\d{1,2}|[#](?=\d)\d{1,2}|\bb(?=\d)\d{1,2}|\(\s*[♯#b♭]\s*\)\s*\d{1,2}|\d{1,2})/g)) {
-          toks.push({ s: m[0], i: m.index! });
-        }
-        // Extension detection per the header comment above. A bare digit is
-        // the extension only when it is the FIRST numerator token (either
-        // fused to the anchor — "C7/3" — or whitespace-separated from it —
-        // "C 7 /3"). Digits at any other position are additions ("C /9" ⇒ add
-        // 9; "C 7 ♯11/3" keeps ext 7 because ♯11 sits AFTER it).
-        let extK = -1;
-        if (toks.length && /^\d+$/.test(toks[0].s)) {
-          const t0 = toks[0];
-          const prevCh = numPart[t0.i - 1] ?? '';
-          // Glued to the anchor head ("C7/3", "C7♯11/3") — always the extension.
-          // Whitespace-separated ("C7 /3", "C 7 /3", "C /9"): the digit IS the
-          // extension whenever no further tokens follow it in the numerator;
-          // if signed addition tokens trail it ("C 7 ♯11/3") it stays the
-          // extension too, and those signs keep their own tokens as additions.
-          // The one non-extension case is a leading slash with nothing before
-          // the digit except the anchor itself ("C /9" ⇒ add 9 over a triad).
-          const gluedToAnchor = /[A-Ga-g♯♭♮]/.test(prevCh);
-          const aloneInNumerator = toks.length === 1;
-          const hasSignedAddsAfter = toks.slice(1).some((t) => /^[♯♭#b♮]/.test(t.s));
-          if (gluedToAnchor || aloneInNumerator || hasSignedAddsAfter) extK = 0;
-        }
-        const end2 = extK >= 0 ? extK : toks.length;
-        for (let k = 0; k < end2; k++) {
-          const sm = /^([#b\u266F\u266D\u266E])?\s*(?:\(\s*([\u266F#b\u266D])\s*\))?\s*(\d{1,2})/.exec(toks[k].s)!;
-          const sign = sm[1] || sm[2];
-          chord.add.push({ degree: Number(sm[3]), alter: sign ? (ACC_MAP[sign] ?? 0) : 0 });
-        }
-        // Keep everything from the surviving extension token onward in `rest` —
-        // including any quality word that trails it ("C7sus4/3" ⇒ rest "7sus4").
-        if (end2 < toks.length) rest = numPart.slice(toks[end2].i);
-        else if (toks.length) rest = numPart.slice(0, toks[0].i).trimEnd();
-        else rest = preT.trimEnd();
-        for (const d of postT.matchAll(/([\u266F\u266D#b\u266E]?)(\d+)/g)) chord.rem.push(Number(d[2]));
-        return true;
-      }
-      // else: the slash belongs to the bass stage ("/F♯") — leave `rest` intact.
+    const preT = rest.slice(0, idx);
+    const postT = rest.slice(idx + 1).trim();
+    // Quality subscript "/q" ("C 7 /m"): a single quality char, optionally
+    // fused to a removal list ("C7/m3"). UCSS reserves the final slash for
+    // these roles, so this reading takes precedence over slash-bass — but
+    // only when the numerator is not itself a bare quality word ("Cm/m",
+    // "Cmaj/M" would be degenerate; those go to the bass stage). A numerator
+    // ending in an *extension digit* ("C7/m") is different: there 'm' cannot
+    // be a degree-list denominator, and the traditional reading "C7 with m in
+    // the bass" (chord-tone bass) wins — leave it to the bass stage.
+    const qm = /^([Mm+o\u00f8])((?:\s*[\u266F\u266D#\u266E]?\d+)*)$/.exec(postT);
+    if (qm && !/(?:^|[ \t/])(?:maj|ma|mi|min|m|M)$/i.test(preT) && !/\d$/.test(preT)) {
+      chord.quality = qm[1];
+      chord.qualityFromWord = true; // explicit UCSS subscript — render it back
+      for (const d of qm[2].matchAll(/\d+/g)) chord.rem.push(Number(d));
+      rest = preT.trimEnd();
+      return true;
     }
-    return false;
+    // Numerator grammar. Tokens are degree numbers, optionally signed.
+    // A BARE digit at the head of the numerator is the EXTENSION only when it
+    // is unambiguously a stacked-third figure (6/7/9/11/13); otherwise it is
+    // an ADDITION — which is what makes "C /9" read as add-9 while "C 7 /3"
+    // reads as ext 7 + rem 3 ("C 5/3": power chord minus its third). Signed
+    // tokens are always additions; when a signed token trails the extension
+    // ("C7♯11/3") it joins the numerator list and the scan stops there.
+    const nm = /^([A-Ga-g][♯♭♮#b]*|[ivxIVX]+(?:\/[ivxIVX]+)?|Ger|It|Fr|[+-])(?:[ \t]*|[♯♭](?=\d))([♯♭]?)(\d{1,2})(.*)$/.exec(preT.trim());
+    if (!nm) return false; // numerator doesn't start with an anchor — not our fraction
+    const bareExt = !nm[2] && [6, 7, 9, 11, 13].includes(Number(nm[3]));
+    const extTok: { v: number; rest: string } | null = bareExt ? { v: Number(nm[3]), rest: nm[4] } : null;
+    const addsSrc = extTok ? extTok.rest : `${nm[2]}${nm[3]}${nm[4]}`;
+    const anchorHead = nm[1];
+
+    // Denominator guard: the removal list ("/3", "/♭5 9") must look like a
+    // degree list. A denominator that is a note spelling ("D/F♯", "C/G") is
+    // traditional slash-bass and belongs to stage 4 — never consume it here.
+    const denOk = /^[♯♭♮]?\d(?:\s*[♯♭♮]?\d+)*$/.test(postT) || /^[♯♭♮]\d/.test(postT);
+    const postIsNoteSpelling =
+      /^[A-Ga-g](?:bb?|[♯♭#♮])?$/.test(postT) && !/\d/.test(postT);
+    if (postIsNoteSpelling || !denOk) return false;
+
+    for (const a of addsSrc.matchAll(/([♯♭#b♮]?)\s*(\d{1,2})/g)) {
+      const sign = a[1];
+      chord.add.push({ degree: Number(a[2]), alter: sign ? (ACC_MAP[sign] ?? 0) : 0 });
+    }
+    for (const d of postT.matchAll(/[♯♭#b♮]?(\d+)/g)) chord.rem.push(Number(d[1]));
+    // Rebuild `rest` as anchor + surviving extension token, preserving the
+    // original glue ("C7" vs "C 7") so later stages see an ordinary symbol.
+    rest = anchorHead + (extTok ? String(extTok.v) : '');
+    return true;
   };
   tryFractionTail();
 
@@ -1001,13 +957,12 @@ export function parseUcss(input: string, opts: ParseOpts = {}): UcssChord {
     // the quality, not to a bare UCSS extension. The digit may be followed by
     // more text ("m7b5", "maj13") — normalizeTraditionalQuality handles those
     // compound forms internally; here we only need to detect that a quality
-    // word is glued to a digit at the start of the tail.
+    // word is glued to a digit at the start of the tail. ASCII 'b'/'#' signs
+    // fused to digits ("m7b5") are part of the compound too.
     const preQ = /^(maj|ma|M|min|mi|m)\d/i.exec(tail)
-      || /^(maj|ma|min|mi|m)(?=[♭♯]\d)/i.exec(tail);
+      || /^(maj|ma|min|mi|m)(?=[♭♯#b]\d)/i.exec(tail);
     if (preQ) {
       tail = normalizeTraditionalQuality(chord, tail);
-    } else {
-      tail = head.rest.trim();
     }
 
     // Peel loop: traditional quality words and extension digits may interleave
@@ -1033,6 +988,15 @@ export function parseUcss(input: string, opts: ParseOpts = {}): UcssChord {
           tail = em[3].trim();
           continue;
         }
+      }
+      // Traditional alteration suffixes glued after the extension ("7b5",
+      // "7#11"): ASCII sign + digit at the head of the tail is an alteration,
+      // never a second extension digit.
+      const am = /^([♯♭#b])(\d{1,2})(.*)$/.exec(tail);
+      if (am) {
+        chord.add.push({ degree: Number(am[2]), alter: ACC_MAP[am[1]] ?? 0 });
+        tail = am[3].trim();
+        continue;
       }
       if (tail === before) break;
     }
