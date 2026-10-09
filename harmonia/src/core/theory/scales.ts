@@ -4,27 +4,41 @@
  * key/mode prior in the analyzer (README §6/§7).
  */
 
+import { NOTE_NAMES_FLAT, NOTE_NAMES_SHARP, pitchClass } from './pitch.ts';
+
 export interface Scale {
   id: string;
   name: string;
+  /** Short label used in compact UI text (key badge, toolbar selects). */
+  short: string;
   /** Interval steps from tonic in semitones. */
   intervals: number[];
 }
 
 export const SCALES: Scale[] = [
-  { id: 'ionian',      name: 'Major (Ionian)',        intervals: [0,2,4,5,7,9,11] },
-  { id: 'aeolian',     name: 'Natural Minor (Aeolian)', intervals: [0,2,3,5,7,8,10] },
-  { id: 'dorian',      name: 'Dorian',                intervals: [0,2,3,5,7,9,10] },
-  { id: 'phrygian',    name: 'Phrygian',              intervals: [0,1,3,5,7,8,10] },
-  { id: 'lydian',      name: 'Lydian',                intervals: [0,2,4,6,7,9,11] },
-  { id: 'mixolydian',  name: 'Mixolydian',            intervals: [0,2,4,5,7,9,10] },
-  { id: 'locrian',     name: 'Locrian',               intervals: [0,1,3,5,6,8,10] },
-  { id: 'harmonic-minor', name: 'Harmonic Minor',     intervals: [0,2,3,5,7,8,11] },
-  { id: 'melodic-minor',  name: 'Melodic Minor',      intervals: [0,2,3,5,7,9,11] },
+  { id: 'ionian',         name: 'Major (Ionian)',           short: 'major',   intervals: [0,2,4,5,7,9,11] },
+  { id: 'aeolian',        name: 'Natural Minor (Aeolian)',  short: 'minor',   intervals: [0,2,3,5,7,8,10] },
+  { id: 'dorian',         name: 'Dorian',                   short: 'dorian',  intervals: [0,2,3,5,7,9,10] },
+  { id: 'phrygian',       name: 'Phrygian',                 short: 'phryg',   intervals: [0,1,3,5,7,8,10] },
+  { id: 'lydian',         name: 'Lydian',                   short: 'lydian',  intervals: [0,2,4,6,7,9,11] },
+  { id: 'mixolydian',     name: 'Mixolydian',               short: 'mixolyd', intervals: [0,2,4,5,7,9,10] },
+  { id: 'locrian',        name: 'Locrian',                  short: 'locrian', intervals: [0,1,3,5,6,8,10] },
+  { id: 'harmonic-minor', name: 'Harmonic Minor',           short: 'harm. minor', intervals: [0,2,3,5,7,8,11] },
+  { id: 'melodic-minor',  name: 'Melodic Minor',            short: 'mel. minor',  intervals: [0,2,3,5,7,9,11] },
 ];
 
 export function getScale(id: string): Scale {
   return SCALES.find((s) => s.id === id) ?? SCALES[0];
+}
+
+/**
+ * Compact human label for a key/scale selection, e.g. `Ab dorian`. Used by the
+ * analysis toolbar select and the topbar badge so it is always obvious which
+ * root/scale the chord analysis is weighted toward.
+ */
+export function keyLabel(tonic: number, scaleId: string, prefer: 'sharp' | 'flat' = 'flat'): string {
+  const table = prefer === 'sharp' ? NOTE_NAMES_SHARP : NOTE_NAMES_FLAT;
+  return `${table[pitchClass(tonic)]} ${getScale(scaleId).short}`;
 }
 
 /** Pitch classes (0..11) contained in `tonic` + `scale`. */
