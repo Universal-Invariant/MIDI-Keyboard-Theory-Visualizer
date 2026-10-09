@@ -149,17 +149,14 @@ export function spellDegreePc(
   // scale ("C7 ♯11": pc 6 must resolve to F♯, the raised 4th of C major, not
   // G♭ merely because the default bias is 'flat').
   if (diatonic.has(pc)) {
-    // The pc is a member of the analysis scale. Its white-key letter may be
-    // *natural* in this scale ("G" in F major → plain G), in which case that
-    // plain letter is the only correct spelling. Otherwise the scale forces an
-    // accidental on some letter: in F major (B♭ in the set), pc 10 → "B♭",
-    // never "A" — A-natural is foreign to the key. Collect every single-
-    // accidental candidate whose spelled form actually sits inside the scale
-    // and choose by the musician's typing bias; when nothing else pins it
-    // down, prefer the letter that precedes the next scale tone (the classic
-    // flat-side resolution: B before C).
+    // The pc is a member of the analysis scale. A white-key pc whose natural
+    // letter is a scale degree keeps its plain spelling — but only when that
+    // letter actually *is* the diatonic tone at that position: in F major the
+    // set contains 10, yet A-natural (pc 9) is foreign to the key, so pc 10
+    // must be spelled "B♭", never "A". Naturals are valid exactly when
+    // LETTER_PC[white] === pc (the scale holds the natural itself).
     const whiteKeyLetter = PC_LETTER[LETTER_OF_PC[pc]];
-    if (diatonic.has(LETTER_PC[whiteKeyLetter])) return whiteKeyLetter;
+    if (LETTER_PC[whiteKeyLetter] === pc) return whiteKeyLetter;
     const cands: { name: string; d: number }[] = [];
     for (let letter = 0; letter < 7; letter++) {
       const L = PC_LETTER[letter];
@@ -320,7 +317,7 @@ export function intervalsOf(c: UcssChord, key?: KeySignatureSetting | null): num
   // Seventh color for the diminished family: 'o'+7 = fully diminished (9),
   // 'ø'+7 = half-diminished (♭7→10). The ø frame is a minor triad, so its
   // stack already supplies the correct ♭7; only 'o' needs an override.
-  const dimSeventh = c.quality === 'o' && c.extension === 7;
+  const dimSeventh = frame === 'o' && c.extension === 7;
   if (dimSeventh) { out.delete(10); out.add(9); }
 
   // Triad substitutions (UCSS digits 2/3/4/5): these REPLACE part of the base
@@ -329,20 +326,26 @@ export function intervalsOf(c: UcssChord, key?: KeySignatureSetting | null): num
   //   3 → bare third: the 5th is omitted
   //   4 → sus4: the 3rd is replaced by the 4th
   //   5 → power chord: the 3rd is omitted, leaving an isolated 5th
-  const substitute = c.extension !== null && (c.extension <= 5);
+  // A *traditional* sus word ("Csus4") suspends without claiming the stack:
+  // `susMarker` with no extension digit applies the substitution directly.
   const removeSet = new Set<number>();
-  if (substitute && c.extension !== null) {
-    if (c.extension === 2) { out.add(2); removeSet.add(TRIAD[frame][0]); }
-    else if (c.extension === 4) { out.add(5); removeSet.add(TRIAD[frame][0]); }
-    else if (c.extension === 3) { removeSet.add(TRIAD[frame][1]); }
-    else if (c.extension === 5) { removeSet.add(TRIAD[frame][0]); }
+  const applySus = (digit: number) => {
+    if (digit === 2) { out.add(2); removeSet.add(TRIAD[frame][0]); }
+    else if (digit === 4) { out.add(5); removeSet.add(TRIAD[frame][0]); }
+  };
+  if (c.extension !== null && c.extension <= 5) {
+    if (c.extension === 2 || c.extension === 4) applySus(c.extension);
+    else if (c.extension === 3) removeSet.add(TRIAD[frame][1]);
+    else if (c.extension === 5) removeSet.add(TRIAD[frame][0]);
+  } else if (c.susMarker && c.extension === null) {
+    applySus(c.susDigit ?? 4);
   }
 
   // Extension (stacked thirds) — every intermediate third of the stack sounds,
   // sized by the frame. Skip when the dim-family seventh was set explicitly
   // and when a triad substitution stands in for the stack.
   const ext = c.extension;
-  if (ext !== null && ext >= 6 && !dimSeventh) {
+  if (ext !== null && ext >= 6 && !(frame === 'o' && (ext === 7 || ext === 9))) {
     // Stacked-thirds rule: every third up to the extension sounds — but only
     // actual thirds (3,5,7,9,…), never the sixth, which is its own chord type.
     for (const deg of [3, 5, 7, 9, 11, 13, 15, 17, 19, 21]) {
@@ -352,13 +355,9 @@ export function intervalsOf(c: UcssChord, key?: KeySignatureSetting | null): num
     }
     // A sus color layered on an extended stack (`C7sus4`) keeps its native
     // seventh/ninths but still replaces the third.
-    if (c.susMarker) {
-      removeSet.add(TRIAD[frame][0]);
-      out.add(c.susDigit === 2 ? 2 : 5);
-    }
-  } else if (ext !== null && ext >= 6 && dimSeventh && c.susMarker) {
-    removeSet.add(TRIAD[frame][0]);
-    out.add(c.susDigit === 2 ? 2 : 5);
+    if (c.susMarker) applySus(c.susDigit ?? 4);
+  } else if (ext !== null && ext >= 6 && frame === 'o' && c.susMarker) {
+    applySus(c.susDigit ?? 4);
   }
 
   // Minor 6th Rule: an unaltered 6 on a minor chord is ♭6 (Aeolian) unless the
@@ -827,6 +826,10 @@ export function parseUcss(input: string, opts: ParseOpts = {}): UcssChord {
   // the traditional slash-bass (F/m = F major over A♭) and belongs to stage 4.
   // The "/q" subscript reading is therefore disabled below (qm branch removed).
   const tryFractionTail = (): boolean => {
+    // A trailing "(bass)" paren is a traditional bass spelling, not a
+    // fraction denominator — normalize it to slash form before we peel the
+    // last slash ("C7(G)" → "C7/G" stays a slash chord).
+    rest = rest.replace(/\(\s*(?:[b♭])?\s*([A-Ga-g](?:bb?|[♯#])?)\s*\)$/, '/$1');
     const idx = rest.lastIndexOf('/');
     if (idx < 0 || rest.slice(0, idx).includes('/')) return false;
     const preT = rest.slice(0, idx);
@@ -854,7 +857,11 @@ export function parseUcss(input: string, opts: ParseOpts = {}): UcssChord {
     // reads as ext 7 + rem 3 ("C 5/3": power chord minus its third). Signed
     // tokens are always additions; when a signed token trails the extension
     // ("C7♯11/3") it joins the numerator list and the scan stops there.
-    const nm = /^([A-Ga-g][♯♭♮#b]*|[ivxIVX]+(?:\/[ivxIVX]+)?|Ger|It|Fr|[+-])(?:[ \t]*|[♯♭](?=\d))([♯♭]?)(\d{1,2})(.*)$/.exec(preT.trim());
+    // The ASCII 'b' is ambiguous: a flat sign only when it directly quantifies
+    // a digit ("C7♭9/5" style glue), otherwise part of a note spelling
+    // ("Bb", "Eb"). Unicode ♭/♯ are always signs.
+    const nm = /^([A-Ga-g](?:[♯♮]|#|b(?!\d))*)(?:[ \t]*|[♯♭](?=\d))([♯♭]?)(\d{1,2})(.*)$/.exec(preT.trim())
+      || /^([ivxIVX]+(?:\/[ivxIVX]+)?|Ger|It|Fr|[+-])(?:[ \t]*|[♯♭](?=\d))([♯♭]?)(\d{1,2})(.*)$/.exec(preT.trim());
     if (!nm) return false; // numerator doesn't start with an anchor — not our fraction
     const bareExt = !nm[2] && [6, 7, 9, 11, 13].includes(Number(nm[3]));
     const extTok: { v: number; rest: string } | null = bareExt ? { v: Number(nm[3]), rest: nm[4] } : null;
