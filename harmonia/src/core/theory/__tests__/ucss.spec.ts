@@ -9,7 +9,7 @@ import {
 
 const C_MAJOR = { tonic: 0, scale: 'ionian' };
 
-function pcs(input: string, key = null as Parameters<typeof parseUcss>[1]['key']): number[] {
+function pcs(input: string, key = null as NonNullable<Parameters<typeof parseUcss>[1]>['key']): number[] {
   const c = parseUcss(input, { key });
   return intervalsOf(c, key).map((s) => ((c.anchorPc ?? 0) + s) % 12);
 }
